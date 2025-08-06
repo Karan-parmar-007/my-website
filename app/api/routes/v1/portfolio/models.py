@@ -1,0 +1,167 @@
+from datetime import datetime
+from uuid import UUID, uuid4
+from typing import Optional
+
+from pydantic import EmailStr
+from sqlmodel import Field, SQLModel, Column
+from sqlalchemy.dialects import postgresql
+
+
+# ----------------------------------------
+# 🔹 Core Models
+# ----------------------------------------
+
+class ProfileInfo(SQLModel, table=True):
+    id: UUID = Field(
+        sa_column=Column(postgresql.UUID(as_uuid=True), primary_key=True, default=uuid4)
+    )
+
+    name: str = Field(
+        max_length=100,
+        sa_column=Column(postgresql.VARCHAR(100), nullable=False)
+    )
+
+    about: Optional[str] = Field(
+        default=None,
+        sa_column=Column(postgresql.TEXT, nullable=True)
+    )
+
+    headline: Optional[str] = Field(
+        default=None,
+        sa_column=Column(postgresql.VARCHAR(255), nullable=True)
+    )
+
+    email: EmailStr = Field(
+        sa_column=Column(postgresql.VARCHAR(255), nullable=False, unique=True)
+    )
+
+    phone: Optional[str] = Field(
+        default=None,
+        sa_column=Column(postgresql.VARCHAR(15), nullable=True)
+    )
+
+    location: Optional[str] = Field(
+        default=None,
+        sa_column=Column(postgresql.VARCHAR(100), nullable=True)
+    )
+
+    github_url: Optional[str] = Field(
+        default=None,
+        sa_column=Column(postgresql.VARCHAR(255), nullable=True)
+    )
+
+    linkedin_url: Optional[str] = Field(
+        default=None,
+        sa_column=Column(postgresql.VARCHAR(255), nullable=True)
+    )
+
+    resume_url: Optional[str] = Field(
+        default=None,
+        sa_column=Column(postgresql.VARCHAR(255), nullable=True)
+    )
+
+    instagram: Optional[str] = Field(
+        default=None,
+        sa_column=Column(postgresql.VARCHAR(255), nullable=True)
+    )
+
+    profile_image_id: Optional[str] = Field(
+        default=None,
+        sa_column=Column(postgresql.VARCHAR(255), nullable=True)
+    )
+
+class Education(SQLModel, table=True):
+    id: UUID = Field(
+        sa_column=Column(postgresql.UUID(as_uuid=True), primary_key=True, default=uuid4)
+    )
+
+    school: str = Field(
+        max_length=100,
+        sa_column=Column(postgresql.VARCHAR(100), nullable=False)
+    )
+
+    degree: str = Field(
+        max_length=100,
+        sa_column=Column(postgresql.VARCHAR(100), nullable=False)
+    )
+
+    start_year: int = Field(
+        sa_column=Column(postgresql.INTEGER, nullable=False)
+    )
+
+    end_year: int = Field(
+        sa_column=Column(postgresql.INTEGER, nullable=False)
+    )
+
+    Score: Optional[float] = Field(
+        default=None,
+        sa_column=Column(postgresql.FLOAT, nullable=True)
+    )
+
+class WorkExperience(SQLModel, table=True):
+    id: UUID = Field(
+        sa_column=Column(postgresql.UUID(as_uuid=True), primary_key=True, default=uuid4)
+    )
+
+    company: str = Field(
+        max_length=100,
+        sa_column=Column(postgresql.VARCHAR(100), nullable=False)
+    )
+
+    position: str = Field(
+        max_length=100,
+        sa_column=Column(postgresql.VARCHAR(100), nullable=False)
+    )
+
+    description: str = Field(
+        max_length=500,
+        sa_column=Column(postgresql.VARCHAR(500), nullable=False)
+    )
+
+    start_date: datetime = Field(
+        sa_column=Column(postgresql.DATE, nullable=False)
+    )
+
+    end_date: datetime = Field(
+        sa_column=Column(postgresql.DATE, nullable=False)
+    )
+
+class Skill(SQLModel, table=True):
+    id: UUID = Field(
+        sa_column=Column(postgresql.UUID(as_uuid=True), primary_key=True, default=uuid4)
+    )
+
+    name: str = Field(
+        max_length=100,
+        sa_column=Column(postgresql.VARCHAR(100), nullable=False, unique=True)
+    )
+
+    category: str = Field(
+        max_length=100,
+        sa_column=Column(postgresql.VARCHAR(100), nullable=False)
+    )
+
+    image_link: str = Field(
+        max_length=500,
+        sa_column=Column(postgresql.VARCHAR(500), nullable=False)
+    )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
