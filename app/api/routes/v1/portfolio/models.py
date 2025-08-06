@@ -141,9 +141,9 @@ class Skill(SQLModel, table=True):
         sa_column=Column(postgresql.VARCHAR(100), nullable=False)
     )
 
-    image_link: str = Field(
-        max_length=500,
-        sa_column=Column(postgresql.VARCHAR(500), nullable=False)
+    image_id: Optional[str] = Field(
+        default=None,
+        sa_column=Column(postgresql.VARCHAR(255), nullable=True)
     )
 
 
