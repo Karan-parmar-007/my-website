@@ -17,6 +17,8 @@ class DatabaseSettings(BaseSettings):
     POSTGRES_USER: str
     POSTGRES_PASSWORD: str
     POSTGRES_DB: str
+
+    
     MONGO_URI: str 
     MONGO_DB_NAME: str
 
