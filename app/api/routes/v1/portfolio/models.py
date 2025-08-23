@@ -3,7 +3,7 @@ from uuid import UUID, uuid4
 from typing import Optional
 
 from pydantic import EmailStr
-from sqlmodel import Field, SQLModel, Column
+from sqlmodel import Field, SQLModel, Column, JSON
 from sqlalchemy.dialects import postgresql
 
 
@@ -98,6 +98,11 @@ class Education(SQLModel, table=True):
         sa_column=Column(postgresql.FLOAT, nullable=True)
     )
 
+    description: Optional[str] = Field(
+        default=None,
+        sa_column=Column(postgresql.TEXT, nullable=True)
+    )
+
 class WorkExperience(SQLModel, table=True):
     id: UUID = Field(
         sa_column=Column(postgresql.UUID(as_uuid=True), primary_key=True, default=uuid4)
@@ -113,9 +118,8 @@ class WorkExperience(SQLModel, table=True):
         sa_column=Column(postgresql.VARCHAR(100), nullable=False)
     )
 
-    description: str = Field(
-        max_length=500,
-        sa_column=Column(postgresql.VARCHAR(500), nullable=False)
+    description: list[str] = Field(
+        sa_column=Column(JSON, nullable=True)
     )
 
     start_date: datetime = Field(

@@ -15,14 +15,21 @@ from app.api.routes.v1.portfolio.schemas import (
     ProfileInfoRead,
     ProfileInfoCreate,
     ProfileInfoUpdate,
+    EducatioCreate,
+    EducationRead,
+    EducationUpdate,
+    WorkExperienceCreate,
+    WorkExperienceRead,
+    WorkExperienceUpdate,
 )
 from bson import ObjectId
 import base64
+from uuid import UUID
 
 router = APIRouter()
 
 
-@router.get("/", response_model=ProfileInfoRead)
+@router.get("/profile-info", response_model=ProfileInfoRead)
 async def get_full_profile(service: PortfolioServiceDep):
     profile = await service.get_profile_info()
     if not profile:
@@ -51,7 +58,7 @@ async def get_profile_image(service: PortfolioServiceDep):
 
 
 
-@router.post("/", status_code=status.HTTP_201_CREATED)
+@router.post("/profile-info", status_code=status.HTTP_201_CREATED)
 async def create_portfolio(
     service: PortfolioServiceDep,
     name: str = Form(...),
@@ -83,7 +90,7 @@ async def create_portfolio(
     return {"message": "Profile created successfully", "profile_id": str(profile.id)}
 
 
-@router.put("/", response_model=ProfileInfoRead)
+@router.put("/profile-info", response_model=ProfileInfoRead)
 async def update_portfolio(
     service: PortfolioServiceDep,
     name: Optional[str] = Form(None),
@@ -114,10 +121,74 @@ async def update_portfolio(
     return {"message": "Profile Updated successfully"}
 
 
-@router.delete("/", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/profile-info", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_portfolio(service: PortfolioServiceDep):
     profile = await service.get_profile_info()
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
 
     await service.delete_profile_info()
+
+
+@router.get("/education", response_model=list[EducationRead], status_code=status.HTTP_200_OK)
+async def get_education(service: PortfolioServiceDep):
+    education = await service.get_education()
+    if not education:
+        raise HTTPException(status_code=404, detail="No education records found")
+    return education
+
+@router.post("/education", status_code=status.HTTP_201_CREATED)
+async def create_education(service: PortfolioServiceDep, data: EducatioCreate):
+    education = await service.create_education(data)
+    return {"message": "Education record created successfully", "education_id": str(education.id)}
+
+@router.put("/education", status_code=status.HTTP_200_OK)
+async def update_education(service: PortfolioServiceDep, data: EducationUpdate):
+    try:
+        updated_education = await service.update_education(data)
+        if not updated_education:
+            raise HTTPException(status_code=404, detail="Education record not found")
+        return {"message": "Education record updated successfully"}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    
+@router.delete("/education/{education_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_education(service: PortfolioServiceDep, education_id: UUID):
+    try:
+        await service.delete_education(education_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return {"message": "Education record deleted successfully"}
+
+@router.get("/work-experience", response_model=list[WorkExperienceRead], status_code=status.HTTP_200_OK)
+async def get_work_experience(service: PortfolioServiceDep):
+    work_experience = await service.get_work_experience()
+    if not work_experience:
+        raise HTTPException(status_code=404, detail="No work experience records found")
+    return work_experience
+
+@router.post("/work-experience", status_code=status.HTTP_201_CREATED)
+async def create_work_experience(service: PortfolioServiceDep, data: WorkExperienceCreate):
+    work_experience = await service.create_work_experience(data)
+    return {"message": "Work experience record created successfully", "work_experience_id": str(work_experience.id)}
+
+@router.put("/work-experience", status_code=status.HTTP_200_OK)
+async def update_work_experience(service: PortfolioServiceDep, data: WorkExperienceUpdate):
+    try:
+        updated_work_experience = await service.update_work_experience(data)
+        if not updated_work_experience:
+            raise HTTPException(status_code=404, detail="Work experience record not found")
+        return {"message": "Work experience record updated successfully"}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    
+@router.delete("/work-experience/{work_experience_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_work_experience(service: PortfolioServiceDep, work_experience_id: UUID):
+    try:
+        await service.delete_work_experience(work_experience_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return {"message": "Work experience record deleted successfully"}   
+
+
+
