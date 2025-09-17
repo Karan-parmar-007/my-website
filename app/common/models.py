@@ -3,6 +3,7 @@ from enum import Enum
 from uuid import UUID, uuid4
 
 from pydantic import EmailStr
+from sqlalchemy import ForeignKey
 from sqlmodel import Field, SQLModel, Column, Relationship
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,7 +42,7 @@ class UserRole(str, Enum):
 
 # ----------------------------------------
 # 🔹 Tag Models
-# ----------------------------------------
+# ---------------------------------------- 
 
 class AccessLevelTag(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
@@ -176,24 +177,14 @@ class Projects(SQLModel, table=True):
 
 class ProjectMembership(SQLModel, table=True):
     user_id: UUID = Field(
-        default=None,
-        primary_key=True,
-        foreign_key="users.id",
-        nullable=False,
-        index=True
+        sa_column=Column(postgresql.UUID(as_uuid=True), ForeignKey("users.id"), primary_key=True)
     )
-
     project_id: UUID = Field(
-        default=None,
-        primary_key=True,
-        foreign_key="projects.id",
-        nullable=False,
-        index=True
+        sa_column=Column(postgresql.UUID(as_uuid=True), ForeignKey("projects.id"), primary_key=True)
     )
 
-    # Optional relationships
-    user: Optional["Users"] = Relationship(back_populates="memberships")
-    project: Optional["Projects"] = Relationship(back_populates="members")
+    user: "Users" = Relationship(back_populates="memberships")
+    project: "Projects" = Relationship(back_populates="members")
 
 
 

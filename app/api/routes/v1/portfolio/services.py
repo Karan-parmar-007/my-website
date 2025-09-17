@@ -2,11 +2,16 @@ from motor.motor_asyncio import AsyncIOMotorDatabase, AsyncIOMotorGridFSBucket
 from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
+from uuid import UUID
+from bson import ObjectId
+import base64
 
-from app.api.routes.v1.portfolio.models import ProfileInfo, Education, WorkExperience
+from app.api.routes.v1.portfolio.models import ProfileInfo, Education, WorkExperience, Skill, SkillCategory
 from app.api.routes.v1.portfolio.schemas import ProfileInfoCreate, ProfileInfoUpdate
 from app.api.routes.v1.portfolio.schemas import EducatioCreate, EducationRead, EducationUpdate
 from app.api.routes.v1.portfolio.schemas import WorkExperienceCreate, WorkExperienceRead, WorkExperienceUpdate
+from app.api.routes.v1.portfolio.schemas import SkillCreate, SkillRead, SkillUpdate, SkillCreateForm, SkillUpdateForm
+from app.api.routes.v1.portfolio.schemas import SkillCategoryCreate, SkillCategoryRead, SkillCategoryUpdate
 from app.utils.gridfs_utils import upload_to_gridfs, delete_from_gridfs
 
 
@@ -24,18 +29,26 @@ class PortfolioService:
 
     async def get_profile_info(self) -> ProfileInfo | None:
         result = await self.session.execute(select(ProfileInfo).limit(1))
+        if not result:
+            return None
         return result.scalars().first()
 
-    async def create_profile_info(self, data: ProfileInfoCreate, file: UploadFile | None = None) -> ProfileInfo:
+    async def create_profile_info(self, data: ProfileInfoCreate, profile_image: UploadFile | None = None, resume_file: UploadFile | None = None) -> ProfileInfo:
         profile = ProfileInfo(**data.model_dump())
-        if file:
-            profile.profile_image_id = await upload_to_gridfs(self.mongo, file)
+        if profile_image:
+            profile.profile_image_id = await upload_to_gridfs(self.mongo, profile_image)
+        if resume_file:
+            profile.resume_file_id = await upload_to_gridfs(self.mongo, resume_file)
         self.session.add(profile)
-        await self.session.commit()
-        await self.session.refresh(profile)
+        try:
+            await self.session.commit()
+            await self.session.refresh(profile)
+        except Exception as e:
+            await self.session.rollback()
+            raise ValueError(f"Error creating profile: {str(e)}")
         return profile
 
-    async def update_profile_info(self, data: ProfileInfoUpdate, file: UploadFile | None = None) -> ProfileInfo:
+    async def update_profile_info(self, data: ProfileInfoUpdate, profile_image: UploadFile | None = None, resume_file: UploadFile | None = None) -> ProfileInfo:
         profile = await self.get_profile_info()
         if not profile:
             raise ValueError("Profile does not exist")
@@ -43,14 +56,23 @@ class PortfolioService:
         for field, value in data.model_dump(exclude_unset=True).items():
             setattr(profile, field, value)
 
-        if file:
+        if profile_image:
             if profile.profile_image_id:
                 await delete_from_gridfs(self.mongo, profile.profile_image_id)
-            profile.profile_image_id = await upload_to_gridfs(self.mongo, file)
+            profile.profile_image_id = await upload_to_gridfs(self.mongo, profile_image)
+
+        if resume_file:
+            if profile.resume_file_id:
+                await delete_from_gridfs(self.mongo, profile.resume_file_id)
+            profile.resume_file_id = await upload_to_gridfs(self.mongo, resume_file)
 
         self.session.add(profile)
-        await self.session.commit()
-        await self.session.refresh(profile)
+        try:
+            await self.session.commit()
+            await self.session.refresh(profile)
+        except Exception as e:
+            await self.session.rollback()
+            raise ValueError(f"Error updating profile: {str(e)}")
         return profile
 
     async def delete_profile_info(self) -> None:
@@ -60,9 +82,15 @@ class PortfolioService:
 
         if profile.profile_image_id:
             await delete_from_gridfs(self.mongo, profile.profile_image_id)
+        if profile.resume_file_id:
+            await delete_from_gridfs(self.mongo, profile.resume_file_id)
 
         await self.session.delete(profile)
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except Exception as e:
+            await self.session.rollback()
+            raise ValueError(f"Error deleting profile: {str(e)}")
 
 
 # ----------------------------------------
@@ -77,8 +105,12 @@ class PortfolioService:
     async def create_education(self, data: EducatioCreate) -> Education:
         education = Education(**data.model_dump())
         self.session.add(education)
-        await self.session.commit()
-        await self.session.refresh(education)
+        try:
+            await self.session.commit()
+            await self.session.refresh(education)
+        except Exception as e:
+            await self.session.rollback()
+            raise ValueError(f"Error creating education: {str(e)}")
         return education
 
     async def update_education(self, data: EducationUpdate) -> Education:
@@ -90,8 +122,12 @@ class PortfolioService:
             setattr(education, field, value)
 
         self.session.add(education)
-        await self.session.commit()
-        await self.session.refresh(education)
+        try:
+            await self.session.commit()
+            await self.session.refresh(education)
+        except Exception as e:
+            await self.session.rollback()
+            raise ValueError(f"Error updating education: {str(e)}")
         return education
     
     async def delete_education(self, education_id ) -> None:
@@ -100,7 +136,11 @@ class PortfolioService:
             raise ValueError("Education record does not exist")
 
         await self.session.delete(education)
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except Exception as e:
+            await self.session.rollback()
+            raise ValueError(f"Error deleting education: {str(e)}")
 
 
 # ----------------------------------------
@@ -114,8 +154,12 @@ class PortfolioService:
     async def create_work_experience(self, data: WorkExperienceCreate) -> WorkExperience:
         work_experience = WorkExperience(**data.model_dump())
         self.session.add(work_experience)
-        await self.session.commit()
-        await self.session.refresh(work_experience)
+        try:
+            await self.session.commit()
+            await self.session.refresh(work_experience)
+        except Exception as e:
+            await self.session.rollback()
+            raise ValueError(f"Error creating work experience: {str(e)}")
         return work_experience
     
     async def update_work_experience(self, data: WorkExperienceUpdate) -> WorkExperience:
@@ -127,8 +171,12 @@ class PortfolioService:
             setattr(work_experience, field, value)
 
         self.session.add(work_experience)
-        await self.session.commit()
-        await self.session.refresh(work_experience)
+        try:
+            await self.session.commit()
+            await self.session.refresh(work_experience)
+        except Exception as e:
+            await self.session.rollback()
+            raise ValueError(f"Error updating work experience: {str(e)}")
         return work_experience
     
     async def delete_work_experience(self, work_experience_id ) -> None:
@@ -137,6 +185,142 @@ class PortfolioService:
             raise ValueError("Work experience record does not exist")
 
         await self.session.delete(work_experience)
-        await self.session.commit()
-    
-    
+        try:
+            await self.session.commit()
+        except Exception as e:
+            await self.session.rollback()
+            raise ValueError(f"Error deleting work experience: {str(e)}")
+
+
+# ----------------------------------------
+# 🔹 skill category service
+# ----------------------------------------
+
+    async def get_skill_categories(self) -> list[SkillCategory]:
+        result = await self.session.execute(select(SkillCategory))
+        return list(result.scalars().all())
+
+    async def create_skill_category(self, data: SkillCategoryCreate) -> SkillCategory:
+        category = SkillCategory(name=data.name)
+        self.session.add(category)
+        try:
+            await self.session.commit()
+            await self.session.refresh(category)
+        except Exception as e:
+            await self.session.rollback()
+            raise ValueError(f"Error creating category: {str(e)}")
+        return category
+
+    async def update_skill_category(self, data: SkillCategoryUpdate) -> SkillCategory:
+        category = await self.session.get(SkillCategory, data.id)
+        if not category:
+            raise ValueError("Skill category record does not exist")
+        category.name = data.name
+        self.session.add(category)
+        try:
+            await self.session.commit()
+            await self.session.refresh(category)
+        except Exception as e:
+            await self.session.rollback()
+            raise ValueError(f"Error updating category: {str(e)}")
+        return category
+
+    async def delete_skill_category(self, category_id: UUID) -> None:
+        category = await self.session.get(SkillCategory, category_id)
+        if not category:
+            raise ValueError("Skill category record does not exist")
+        # Set category_id to None for all skills in this category
+        skills = await self.session.execute(select(Skill).where(Skill.category_id == category_id))
+        for skill in skills.scalars().all():
+            skill.category_id = None 
+            self.session.add(skill)
+        await self.session.delete(category)
+        try:
+            await self.session.commit()
+        except Exception as e:
+            await self.session.rollback()
+            raise ValueError(f"Error deleting category: {str(e)}")
+
+
+# ----------------------------------------
+# 🔹 skills service
+# ----------------------------------------
+
+    async def get_skills(self) -> list[Skill]:
+        result = await self.session.execute(select(Skill))
+        return list(result.scalars().all())
+
+    async def create_skill(self, data: SkillCreate, skill_image: UploadFile | None) -> Skill:
+        skill = Skill(
+            name=data.name,
+            category_id=data.category_id
+        )
+        if skill_image:
+            skill.image_id = await upload_to_gridfs(self.mongo, skill_image)
+        self.session.add(skill)
+        try:
+            await self.session.commit()
+            await self.session.refresh(skill)
+        except Exception as e:
+            await self.session.rollback()
+            raise ValueError(f"Error creating skill: {str(e)}")
+        return skill
+
+    async def update_skill(self, data: SkillUpdate, skill_image: UploadFile | None) -> Skill:
+        skill = await self.session.get(Skill, data.id)
+        if not skill:
+            raise ValueError("Skill record does not exist")
+        update_data = data.model_dump(exclude_unset=True)
+        if "name" in update_data:
+            skill.name = update_data["name"]
+        if "category_id" in update_data:
+            skill.category_id = update_data["category_id"]
+        if skill_image:
+            if skill.image_id:
+                await delete_from_gridfs(self.mongo, skill.image_id)
+            skill.image_id = await upload_to_gridfs(self.mongo, skill_image)
+        self.session.add(skill)
+        try:
+            await self.session.commit()
+            await self.session.refresh(skill)
+        except Exception as e:
+            await self.session.rollback()
+            raise ValueError(f"Error updating skill: {str(e)}")
+        return skill
+
+    async def delete_skill(self, skill_id: UUID) -> None:
+        skill = await self.session.get(Skill, skill_id)
+        if not skill:
+            raise ValueError("Skill record does not exist")
+        if skill.image_id:
+            await delete_from_gridfs(self.mongo, skill.image_id)
+        await self.session.delete(skill)
+        try:
+            await self.session.commit()
+        except Exception as e:
+            await self.session.rollback()
+            raise ValueError(f"Error deleting skill: {str(e)}")
+
+    async def get_skill_by_id(self, skill_id: UUID) -> Skill | None:
+        return await self.session.get(Skill, skill_id)
+
+    async def get_skill_with_details(self, skill: Skill) -> dict:
+        image_data = None
+        if skill.image_id:
+            stream = await self._get_gridfs_bucket().open_download_stream(ObjectId(skill.image_id))
+            content: bytes = await stream.read()
+            image_data = base64.b64encode(content).decode("utf-8")
+        category_name = None
+        if skill.category_id:
+            category = await self.session.get(SkillCategory, skill.category_id)
+            if category:
+                category_name = category.name
+        skill_dict = skill.model_dump() if hasattr(skill, "dict") else skill.__dict__
+        skill_dict["image_base64"] = image_data
+        skill_dict["category_name"] = category_name
+        return skill_dict
+
+    async def get_skills_with_details(self) -> list[dict]:
+        skills = await self.get_skills()
+        return [await self.get_skill_with_details(skill) for skill in skills]
+
