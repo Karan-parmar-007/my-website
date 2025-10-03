@@ -128,7 +128,7 @@ class ProfileInfoUpdateForm(BaseModel):
 # 🔹 Education
 # ----------------------------------------
 
-class EducatioCreate(BaseModel):
+class EducationCreate(BaseModel):
     school: str
     degree: str
     start_year: int
@@ -145,7 +145,7 @@ class EducationUpdate(BaseModel):
     Score: Optional[float] = None
     description: Optional[str] = None
 
-class EducationRead(EducatioCreate):
+class EducationRead(EducationCreate):
     id: UUID
 
     class Config:

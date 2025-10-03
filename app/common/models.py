@@ -1,62 +1,76 @@
 from datetime import datetime
-from enum import Enum
 from uuid import UUID, uuid4
+from typing import Optional, List
 
 from pydantic import EmailStr
 from sqlalchemy import ForeignKey
 from sqlmodel import Field, SQLModel, Column, Relationship
 from sqlalchemy.dialects import postgresql
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
-from typing import Optional
 
-# ----------------------------------------
-# 🔹 Enums
-# ----------------------------------------
-
-class AccessLevel(str, Enum):
-    PUBLIC = "public"
-    ADMIN = "admin"
-    LOGGED_IN_USERS = "logged_in_users"
-    SPECIAL_ACCESS_USERS = "special_access_users"
-    NOT_LIVE = "not_live"
-    SUPERADMIN = "superadmin"
-
-    async def tag(self, session: AsyncSession) -> Optional["AccessLevelTag"]:
-        return await session.scalar(
-            select(AccessLevelTag).where(AccessLevelTag.name == self.value)
-        )
-
-
-class UserRole(str, Enum):
-    USER = "user"
-    ADMIN = "admin"
-    SUBADMIN = "subadmin"
-    FAMILY = "family"
-    SPECIAL_USER = "special_user"
-
-    async def tag(self, session: AsyncSession) -> Optional["RoleTag"]:
-        return await session.scalar(
-            select(RoleTag).where(RoleTag.name == self.value)
-        )
-
-# ----------------------------------------
-# 🔹 Tag Models
-# ---------------------------------------- 
-
-class AccessLevelTag(SQLModel, table=True):
-    id: int | None = Field(default=None, primary_key=True)
-    name: str = Field(index=True, unique=True)
-
-
-class RoleTag(SQLModel, table=True):
-    id: int | None = Field(default=None, primary_key=True)
-    name: str = Field(index=True, unique=True)
 
 
 # ----------------------------------------
 # 🔹 Core Models
 # ----------------------------------------
+
+class AccessLevel(SQLModel, table=True):
+    id: UUID = Field(
+        sa_column=Column(postgresql.UUID(as_uuid=True), primary_key=True, default=uuid4)
+    )
+    name: str = Field(
+        sa_column=Column(postgresql.VARCHAR(50), nullable=False, unique=True)
+    )
+    description: str = Field(
+        sa_column=Column(postgresql.TEXT, nullable=True)
+    )
+    created_at: datetime = Field(
+        sa_column=Column(postgresql.TIMESTAMP(timezone=True), nullable=False, default=datetime.now)
+    )
+    updated_at: datetime = Field(
+        sa_column=Column(postgresql.TIMESTAMP(timezone=True), nullable=False, default=datetime.now, onupdate=datetime.now)
+    )
+
+class UserRole(SQLModel, table=True):
+    id: UUID = Field(
+        sa_column=Column(postgresql.UUID(as_uuid=True), primary_key=True, default=uuid4)
+    )
+    name: str = Field(
+        sa_column=Column(postgresql.VARCHAR(50), nullable=False, unique=True)
+    )
+    description: str = Field(
+        sa_column=Column(postgresql.TEXT, nullable=True)
+    )
+    created_at: datetime = Field(
+        sa_column=Column(postgresql.TIMESTAMP(timezone=True), nullable=False, default=datetime.now)
+    )
+    updated_at: datetime = Field(
+        sa_column=Column(postgresql.TIMESTAMP(timezone=True), nullable=False, default=datetime.now, onupdate=datetime.now)
+    )
+    permissions: List["Permission"] = Relationship(
+        back_populates="roles",
+        link_model="RolePermission"
+    )
+
+class Permission(SQLModel, table=True):
+    id: UUID = Field(
+        sa_column=Column(postgresql.UUID(as_uuid=True), primary_key=True, default=uuid4)
+    )
+    name: str = Field(
+        sa_column=Column(postgresql.VARCHAR(50), nullable=False, unique=True)
+    )
+    description: str = Field(
+        sa_column=Column(postgresql.TEXT, nullable=True)
+    )
+    created_at: datetime = Field(
+        sa_column=Column(postgresql.TIMESTAMP(timezone=True), nullable=False, default=datetime.now)
+    )
+    updated_at: datetime = Field(
+        sa_column=Column(postgresql.TIMESTAMP(timezone=True), nullable=False, default=datetime.now, onupdate=datetime.now)
+    )
+    roles: List["UserRole"] = Relationship(
+        back_populates="permissions",
+        link_model="RolePermission"
+    )
 
 class Users(SQLModel, table=True):
     id: UUID = Field(
@@ -80,9 +94,14 @@ class Users(SQLModel, table=True):
         sa_column=Column(postgresql.VARCHAR(255), nullable=False)
     )
 
-    role: UserRole = Field(
-        sa_column=Column(postgresql.ENUM(UserRole, name="userrole"), nullable=False, default=UserRole.USER)
+    role_id: UUID = Field(
+        sa_column=Column(
+            postgresql.UUID(as_uuid=True), 
+            ForeignKey("userrole.id"), 
+            nullable=False
+        )
     )
+    role: Optional[UserRole] = Relationship()
 
     email_verified: bool = Field(
         default=False,
@@ -114,9 +133,14 @@ class Projects(SQLModel, table=True):
     short_description: str = Field(sa_column=Column(postgresql.TEXT, nullable=False))
     long_description: str = Field(sa_column=Column(postgresql.TEXT, nullable=False))
 
-    access_level: AccessLevel = Field(
-        sa_column=Column(postgresql.ENUM(AccessLevel, name="accesslevel"), nullable=False, default=AccessLevel.NOT_LIVE)
+    access_level_id: UUID = Field(
+        sa_column=Column(
+            postgresql.UUID(as_uuid=True), 
+            ForeignKey("accesslevel.id"), 
+            nullable=False
+        )
     )
+    access_level: Optional[AccessLevel] = Relationship()
 
     skills_used: list[str] = Field(
         default=[],
@@ -169,11 +193,22 @@ class Projects(SQLModel, table=True):
 
     members: list["ProjectMembership"] = Relationship(back_populates="project")
 
-
+    project_image_id: Optional[str] = Field(
+        default=None,
+        sa_column=Column(postgresql.VARCHAR(255), nullable=True)
+    )
 
 # ----------------------------------------
-# 🔹 Association Table (User ↔ Project)
+# 🔹 Many-to-Many Relationship Model
 # ----------------------------------------
+
+class RolePermission(SQLModel, table=True):
+    role_id: UUID = Field(
+        sa_column=Column(postgresql.UUID(as_uuid=True), ForeignKey("userrole.id"), primary_key=True)
+    )
+    permission_id: UUID = Field(
+        sa_column=Column(postgresql.UUID(as_uuid=True), ForeignKey("permission.id"), primary_key=True)
+    )
 
 class ProjectMembership(SQLModel, table=True):
     user_id: UUID = Field(

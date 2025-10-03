@@ -15,7 +15,7 @@ from app.api.routes.v1.portfolio.schemas import (
     ProfileInfoUpdate,
     ProfileInfoCreateForm,
     ProfileInfoUpdateForm,
-    EducatioCreate,
+    EducationCreate,
     EducationRead,
     EducationUpdate,
     WorkExperienceCreate,
@@ -144,7 +144,7 @@ async def get_education(service: PortfolioServiceDep):
     return education
 
 @router.post("/education", status_code=status.HTTP_201_CREATED)
-async def create_education(service: PortfolioServiceDep, data: EducatioCreate):
+async def create_education(service: PortfolioServiceDep, data: EducationCreate):
     education = await service.create_education(data)
     return {"message": "Education record created successfully", "education_id": str(education.id)}
 

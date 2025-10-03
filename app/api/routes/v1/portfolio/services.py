@@ -1,4 +1,4 @@
-from motor.motor_asyncio import AsyncIOMotorDatabase, AsyncIOMotorGridFSBucket
+from motor.motor_asyncio import AsyncIOMotorDatabase
 from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
@@ -8,11 +8,11 @@ import base64
 
 from app.api.routes.v1.portfolio.models import ProfileInfo, Education, WorkExperience, Skill, SkillCategory
 from app.api.routes.v1.portfolio.schemas import ProfileInfoCreate, ProfileInfoUpdate
-from app.api.routes.v1.portfolio.schemas import EducatioCreate, EducationRead, EducationUpdate
+from app.api.routes.v1.portfolio.schemas import EducationCreate, EducationRead, EducationUpdate
 from app.api.routes.v1.portfolio.schemas import WorkExperienceCreate, WorkExperienceRead, WorkExperienceUpdate
 from app.api.routes.v1.portfolio.schemas import SkillCreate, SkillRead, SkillUpdate, SkillCreateForm, SkillUpdateForm
 from app.api.routes.v1.portfolio.schemas import SkillCategoryCreate, SkillCategoryRead, SkillCategoryUpdate
-from app.utils.gridfs_utils import upload_to_gridfs, delete_from_gridfs
+from app.utils.gridfs_utils import upload_to_gridfs, delete_from_gridfs, get_gridfs_bucket
 
 
 class PortfolioService:
@@ -20,12 +20,43 @@ class PortfolioService:
         self.session = session
         self.mongo = mongo
 
-# ----------------------------------------
-# 🔹 Profile service
-# ----------------------------------------
+        # Use get_gridfs_bucket utility function instead of direct instantiation
+        self.profile_bucket = get_gridfs_bucket(mongo, "profile_files")
+        self.resume_bucket = get_gridfs_bucket(mongo, "resume_files")
+        self.skill_bucket = get_gridfs_bucket(mongo, "skill_files")
 
-    def _get_gridfs_bucket(self) -> AsyncIOMotorGridFSBucket:
-        return AsyncIOMotorGridFSBucket(self.mongo)
+
+    # ----------------------------------------
+    # 🔹 Profile service
+    # ----------------------------------------
+
+    async def get_profile_info_with_files(self) -> dict:
+        profile = await self.get_profile_info()
+        if not profile:
+            return {}
+
+        profile_dict = profile.model_dump() if hasattr(profile, "model_dump") else profile.__dict__
+
+        # Get profile image if exists
+        if profile.profile_image_id:
+            try:
+                stream = await self.profile_bucket.open_download_stream(ObjectId(profile.profile_image_id))
+                content: bytes = await stream.read()
+                profile_dict["profile_image_base64"] = base64.b64encode(content).decode("utf-8")
+            except Exception:
+                profile_dict["profile_image_base64"] = None
+
+        # Get resume file if exists
+        if profile.resume_file_id:
+            try:
+                stream = await self.resume_bucket.open_download_stream(ObjectId(profile.resume_file_id))
+                content = await stream.read()
+                profile_dict["resume_file_base64"] = base64.b64encode(content).decode("utf-8")
+            except Exception:
+                profile_dict["resume_file_base64"] = None
+
+        return profile_dict
+
 
     async def get_profile_info(self) -> ProfileInfo | None:
         result = await self.session.execute(select(ProfileInfo).limit(1))
@@ -33,12 +64,18 @@ class PortfolioService:
             return None
         return result.scalars().first()
 
-    async def create_profile_info(self, data: ProfileInfoCreate, profile_image: UploadFile | None = None, resume_file: UploadFile | None = None) -> ProfileInfo:
+    async def create_profile_info(
+        self,
+        data: ProfileInfoCreate,
+        profile_image: UploadFile | None = None,
+        resume_file: UploadFile | None = None
+    ) -> ProfileInfo:
         profile = ProfileInfo(**data.model_dump())
         if profile_image:
-            profile.profile_image_id = await upload_to_gridfs(self.mongo, profile_image)
+            profile.profile_image_id = await upload_to_gridfs(self.profile_bucket, profile_image)
         if resume_file:
-            profile.resume_file_id = await upload_to_gridfs(self.mongo, resume_file)
+            profile.resume_file_id = await upload_to_gridfs(self.resume_bucket, resume_file)
+
         self.session.add(profile)
         try:
             await self.session.commit()
@@ -48,7 +85,12 @@ class PortfolioService:
             raise ValueError(f"Error creating profile: {str(e)}")
         return profile
 
-    async def update_profile_info(self, data: ProfileInfoUpdate, profile_image: UploadFile | None = None, resume_file: UploadFile | None = None) -> ProfileInfo:
+    async def update_profile_info(
+        self,
+        data: ProfileInfoUpdate,
+        profile_image: UploadFile | None = None,
+        resume_file: UploadFile | None = None
+    ) -> ProfileInfo:
         profile = await self.get_profile_info()
         if not profile:
             raise ValueError("Profile does not exist")
@@ -58,13 +100,13 @@ class PortfolioService:
 
         if profile_image:
             if profile.profile_image_id:
-                await delete_from_gridfs(self.mongo, profile.profile_image_id)
-            profile.profile_image_id = await upload_to_gridfs(self.mongo, profile_image)
+                await delete_from_gridfs(self.profile_bucket, profile.profile_image_id)
+            profile.profile_image_id = await upload_to_gridfs(self.profile_bucket, profile_image)
 
         if resume_file:
             if profile.resume_file_id:
-                await delete_from_gridfs(self.mongo, profile.resume_file_id)
-            profile.resume_file_id = await upload_to_gridfs(self.mongo, resume_file)
+                await delete_from_gridfs(self.resume_bucket, profile.resume_file_id)
+            profile.resume_file_id = await upload_to_gridfs(self.resume_bucket, resume_file)
 
         self.session.add(profile)
         try:
@@ -81,9 +123,9 @@ class PortfolioService:
             raise ValueError("Profile does not exist")
 
         if profile.profile_image_id:
-            await delete_from_gridfs(self.mongo, profile.profile_image_id)
+            await delete_from_gridfs(self.profile_bucket, profile.profile_image_id)
         if profile.resume_file_id:
-            await delete_from_gridfs(self.mongo, profile.resume_file_id)
+            await delete_from_gridfs(self.resume_bucket, profile.resume_file_id)
 
         await self.session.delete(profile)
         try:
@@ -102,7 +144,7 @@ class PortfolioService:
         result = await self.session.execute(select(Education))
         return list(result.scalars().all())
 
-    async def create_education(self, data: EducatioCreate) -> Education:
+    async def create_education(self, data: EducationCreate) -> Education:
         education = Education(**data.model_dump())
         self.session.add(education)
         try:
@@ -246,17 +288,13 @@ class PortfolioService:
 # 🔹 skills service
 # ----------------------------------------
 
-    async def get_skills(self) -> list[Skill]:
-        result = await self.session.execute(select(Skill))
-        return list(result.scalars().all())
-
     async def create_skill(self, data: SkillCreate, skill_image: UploadFile | None) -> Skill:
         skill = Skill(
             name=data.name,
             category_id=data.category_id
         )
         if skill_image:
-            skill.image_id = await upload_to_gridfs(self.mongo, skill_image)
+            skill.image_id = await upload_to_gridfs(self.skill_bucket, skill_image)
         self.session.add(skill)
         try:
             await self.session.commit()
@@ -270,15 +308,18 @@ class PortfolioService:
         skill = await self.session.get(Skill, data.id)
         if not skill:
             raise ValueError("Skill record does not exist")
+
         update_data = data.model_dump(exclude_unset=True)
         if "name" in update_data:
             skill.name = update_data["name"]
         if "category_id" in update_data:
             skill.category_id = update_data["category_id"]
+
         if skill_image:
             if skill.image_id:
-                await delete_from_gridfs(self.mongo, skill.image_id)
-            skill.image_id = await upload_to_gridfs(self.mongo, skill_image)
+                await delete_from_gridfs(self.skill_bucket, skill.image_id)
+            skill.image_id = await upload_to_gridfs(self.skill_bucket, skill_image)
+
         self.session.add(skill)
         try:
             await self.session.commit()
@@ -292,8 +333,10 @@ class PortfolioService:
         skill = await self.session.get(Skill, skill_id)
         if not skill:
             raise ValueError("Skill record does not exist")
+
         if skill.image_id:
-            await delete_from_gridfs(self.mongo, skill.image_id)
+            await delete_from_gridfs(self.skill_bucket, skill.image_id)
+
         await self.session.delete(skill)
         try:
             await self.session.commit()
@@ -301,26 +344,24 @@ class PortfolioService:
             await self.session.rollback()
             raise ValueError(f"Error deleting skill: {str(e)}")
 
-    async def get_skill_by_id(self, skill_id: UUID) -> Skill | None:
-        return await self.session.get(Skill, skill_id)
-
     async def get_skill_with_details(self, skill: Skill) -> dict:
         image_data = None
         if skill.image_id:
-            stream = await self._get_gridfs_bucket().open_download_stream(ObjectId(skill.image_id))
-            content: bytes = await stream.read()
-            image_data = base64.b64encode(content).decode("utf-8")
+            try:
+                stream = await self.skill_bucket.open_download_stream(ObjectId(skill.image_id))
+                content: bytes = await stream.read()
+                image_data = base64.b64encode(content).decode("utf-8")
+            except Exception:
+                image_data = None
+
         category_name = None
         if skill.category_id:
             category = await self.session.get(SkillCategory, skill.category_id)
             if category:
                 category_name = category.name
-        skill_dict = skill.model_dump() if hasattr(skill, "dict") else skill.__dict__
+
+        skill_dict = skill.model_dump() if hasattr(skill, "model_dump") else skill.__dict__
         skill_dict["image_base64"] = image_data
         skill_dict["category_name"] = category_name
         return skill_dict
-
-    async def get_skills_with_details(self) -> list[dict]:
-        skills = await self.get_skills()
-        return [await self.get_skill_with_details(skill) for skill in skills]
 
