@@ -8,8 +8,10 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 from sqlmodel import SQLModel
 from app.config import db_settings
-from app.common.models import AccessLevelTag, RoleTag, Users, Projects, ProjectMembership
+from app.api.routes.v1.user.models import Users, UserRole, Permission, RolePermission
 from app.api.routes.v1.portfolio.models import ProfileInfo, Education, WorkExperience, Skill
+from app.common.models.user_project_link import ProjectMembership
+from app.api.routes.v1.project.models import Projects, AccessLevel
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -69,7 +71,6 @@ def do_run_migrations(connection: Connection) -> None:
 async def run_async_migrations() -> None:
     """In this scenario we need to create an Engine
     and associate a connection with the context.
-
     """
 
     connectable = async_engine_from_config(

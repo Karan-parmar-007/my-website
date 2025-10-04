@@ -1,14 +1,16 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+_base_config = SettingsConfigDict(
+        env_ignore_empty=True,
+        extra="ignore"
+    )
+
 
 class AppSettings(BaseSettings):
     APP_NAME: str = "My_Portfolio"
     APP_DOMAIN: str = "localhost:8000"
 
-    model_config = SettingsConfigDict(
-        env_ignore_empty=True,
-        extra="ignore"
-    )
+    model_config = _base_config
 
 
 class DatabaseSettings(BaseSettings):
@@ -22,11 +24,7 @@ class DatabaseSettings(BaseSettings):
     MONGO_URI: str 
     MONGO_DB_NAME: str
 
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_ignore_empty=True,
-        extra="ignore"
-    )
+    model_config = _base_config
 
     @property
     def POSTGRES_URL(self):
@@ -40,11 +38,7 @@ class SecuritySettings(BaseSettings):
     JWT_SECRET: str
     JWT_ALGORITHM: str
 
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_ignore_empty=True,
-        extra="ignore"
-    )
+    model_config = _base_config
 
 
 # These will now be filled by env vars or Docker Compose .env
