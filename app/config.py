@@ -1,16 +1,12 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _base_config = SettingsConfigDict(
-        env_ignore_empty=True,
-        extra="ignore"
-    )
+    env_file=".env",             
+    env_file_encoding="utf-8",
+    env_ignore_empty=True,
+    extra="ignore"
+)
 
-
-class AppSettings(BaseSettings):
-    APP_NAME: str = "My_Portfolio"
-    APP_DOMAIN: str = "localhost:8000"
-
-    model_config = _base_config
 
 
 class DatabaseSettings(BaseSettings):
@@ -37,11 +33,12 @@ class DatabaseSettings(BaseSettings):
 class SecuritySettings(BaseSettings):
     JWT_SECRET: str
     JWT_ALGORITHM: str
+    JWT_EXPIRATION_Days: int = 7
+    JWT_EXPIRATION_MINUTES: int = 30
 
     model_config = _base_config
 
 
 # These will now be filled by env vars or Docker Compose .env
-app_settings = AppSettings()
 db_settings = DatabaseSettings() # type: ignore
 security_settings = SecuritySettings() # type: ignore

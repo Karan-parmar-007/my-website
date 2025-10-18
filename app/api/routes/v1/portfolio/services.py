@@ -1,3 +1,4 @@
+from typing import Optional
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,8 +20,6 @@ class PortfolioService:
     def __init__(self, session: AsyncSession, mongo: AsyncIOMotorDatabase):
         self.session = session
         self.mongo = mongo
-
-        # Use get_gridfs_bucket utility function instead of direct instantiation
         self.profile_bucket = get_gridfs_bucket(mongo, "profile_files")
         self.resume_bucket = get_gridfs_bucket(mongo, "resume_files")
         self.skill_bucket = get_gridfs_bucket(mongo, "skill_files")
@@ -364,4 +363,31 @@ class PortfolioService:
         skill_dict["image_base64"] = image_data
         skill_dict["category_name"] = category_name
         return skill_dict
+
+    async def get_skills_with_details(self) -> list[dict]:
+        """Get all skills with their category details and images."""
+        try:
+            # Get all skills with joined category information
+            query = select(Skill)
+            result = await self.session.execute(query)
+            skills = result.scalars().all()
+
+            # Process each skill to include category name and image
+            skills_with_details = []
+            for skill in skills:
+                skill_details = await self.get_skill_with_details(skill)
+                skills_with_details.append(skill_details)
+
+            return skills_with_details
+
+        except Exception as e:
+            raise ValueError(f"Error fetching skills: {str(e)}")
+
+    async def get_skill_by_id(self, skill_id: UUID) -> Optional[Skill]:
+        """Get a skill by its ID."""
+        try:
+            skill = await self.session.get(Skill, skill_id)
+            return skill
+        except Exception as e:
+            raise ValueError(f"Error fetching skill: {str(e)}")
 

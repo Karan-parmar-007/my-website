@@ -9,6 +9,6 @@ async def lifespan(app: FastAPI):
     yield
     await close_mongo_connection()
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(title="Karan Parmar", lifespan=lifespan)
 
 app.include_router(api_router)

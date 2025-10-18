@@ -47,6 +47,7 @@ class PermissionCreate(BaseModel):
 class PermissionUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
+    
 
 # ----------------------------------------
 # 🔹 RolePermission
@@ -69,12 +70,9 @@ class RolePermissionCreate(BaseModel):
 # ----------------------------------------
 
 class UserRead(BaseModel):
-    id: UUID
     preferred_name: str
     email: EmailStr
-    role_id: UUID
     created_at: datetime
-    role: Optional["UserRoleRead"] = None  # Forward reference to UserRoleRead
 
     class Config:
         from_attributes = True
@@ -83,7 +81,12 @@ class UserCreate(BaseModel):
     preferred_name: str
     email: EmailStr
     password: str
-    role_id: UUID
+
+class UserCreateResponse(BaseModel):
+    status: str
+    message: str
+    token: Optional[str] = None
+    user: Optional[UserRead] = None
 
 class UserUpdate(BaseModel):
     preferred_name: Optional[str] = None
@@ -94,9 +97,12 @@ class UserLogin(BaseModel):
     email: EmailStr
     password: str
 
-class LoginResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
+class UserLoginResponse(BaseModel):
+    status: str
+    message: str
+    token: Optional[str] = None
+    user: Optional[UserRead] = None
+
 
 class ForgetPasswordRequest(BaseModel):
     email: EmailStr
@@ -111,9 +117,8 @@ class ChangePasswordRequest(BaseModel):
     new_password: str
     confirm_password: str
 
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
+
+
 
 # Resolve forward references
 UserRead.model_rebuild()

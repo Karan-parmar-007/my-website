@@ -7,7 +7,14 @@ from sqlalchemy import ForeignKey
 from sqlmodel import Field, SQLModel, Column, Relationship
 from sqlalchemy.dialects import postgresql
 
-
+# Move RolePermission to the top (before it's referenced)
+class RolePermission(SQLModel, table=True):
+    role_id: UUID = Field(
+        sa_column=Column(postgresql.UUID(as_uuid=True), ForeignKey("userrole.id"), primary_key=True)
+    )
+    permission_id: UUID = Field(
+        sa_column=Column(postgresql.UUID(as_uuid=True), ForeignKey("permission.id"), primary_key=True)
+    )
 
 class UserRole(SQLModel, table=True):
     id: UUID = Field(
@@ -27,7 +34,7 @@ class UserRole(SQLModel, table=True):
     )
     permissions: List["Permission"] = Relationship(
         back_populates="roles",
-        link_model="RolePermission"
+        link_model=RolePermission
     )
 
 class Permission(SQLModel, table=True):
@@ -48,7 +55,7 @@ class Permission(SQLModel, table=True):
     )
     roles: List["UserRole"] = Relationship(
         back_populates="permissions",
-        link_model="RolePermission"
+        link_model=RolePermission
     )
 
 class Users(SQLModel, table=True):
@@ -70,7 +77,7 @@ class Users(SQLModel, table=True):
     )
 
     password_hash: str = Field(
-        sa_column=Column(postgresql.VARCHAR(255), nullable=False)
+        sa_column=Column(postgresql.VARCHAR(1000), nullable=False)
     )
 
     role_id: UUID = Field(
@@ -89,23 +96,6 @@ class Users(SQLModel, table=True):
 
     updated_at: datetime = Field(
         sa_column=Column(postgresql.TIMESTAMP(timezone=True), nullable=False, default=datetime.now, onupdate=datetime.now)
-    )
-
-    memberships: list["ProjectMembership"] = Relationship(back_populates="user")
-
-
-
-
-# ----------------------------------------
-# 🔹 Many-to-Many Relationship Model
-# ----------------------------------------
-
-class RolePermission(SQLModel, table=True):
-    role_id: UUID = Field(
-        sa_column=Column(postgresql.UUID(as_uuid=True), ForeignKey("userrole.id"), primary_key=True)
-    )
-    permission_id: UUID = Field(
-        sa_column=Column(postgresql.UUID(as_uuid=True), ForeignKey("permission.id"), primary_key=True)
     )
 
 

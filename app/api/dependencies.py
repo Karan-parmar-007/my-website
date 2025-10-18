@@ -7,6 +7,8 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.db.session import get_session
 from app.db.mongo_session import get_mongo_db
+
+from app.api.routes.v1.user.service import UserService
 from app.api.routes.v1.portfolio.services import PortfolioService
 
 # DB Dependencies
@@ -20,4 +22,13 @@ def get_portfolio_service(
 ) -> PortfolioService:
     return PortfolioService(session=session, mongo=mongo)
 
+
+def get_user_service(
+    session: SessionDep,
+    mongo: MongoDBDep
+) -> UserService:
+    return UserService(session=session, mongo=mongo)
+
 PortfolioServiceDep = Annotated[PortfolioService, Depends(get_portfolio_service)]
+UserServiceDep = Annotated[UserService, Depends(get_user_service)]
+

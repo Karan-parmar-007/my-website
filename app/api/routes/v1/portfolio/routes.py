@@ -49,15 +49,29 @@ async def get_full_profile(service: PortfolioServiceDep):
 
     image_data = None
     if profile.profile_image_id:
-        stream = await service._get_gridfs_bucket().open_download_stream(ObjectId(profile.profile_image_id))
-        profile_image_content: bytes = await stream.read()
-        image_data = base64.b64encode(profile_image_content).decode("utf-8")
+        try:
+            # Use the pre-initialized profile_bucket
+            stream = await service.profile_bucket.open_download_stream(ObjectId(profile.profile_image_id))
+            profile_image_content: bytes = await stream.read()
+            image_data = base64.b64encode(profile_image_content).decode("utf-8")
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error retrieving profile image: {str(e)}"
+            )
 
     resume_data = None
     if profile.resume_file_id:
-        stream = await service._get_gridfs_bucket().open_download_stream(ObjectId(profile.resume_file_id))
-        resume_content: bytes = await stream.read()
-        resume_data = base64.b64encode(resume_content).decode("utf-8")
+        try:
+            # Use the pre-initialized resume_bucket
+            stream = await service.resume_bucket.open_download_stream(ObjectId(profile.resume_file_id))
+            resume_content: bytes = await stream.read()
+            resume_data = base64.b64encode(resume_content).decode("utf-8")
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error retrieving resume file: {str(e)}"
+            )
 
     result = profile.model_dump() if hasattr(profile, "dict") else profile.__dict__
     result["profile_image_base64"] = image_data
@@ -70,7 +84,7 @@ async def get_profile_image(service: PortfolioServiceDep):
     if not profile or not profile.profile_image_id:
         raise HTTPException(status_code=404, detail="No image found")
 
-    stream = await service._get_gridfs_bucket().open_download_stream(ObjectId(profile.profile_image_id))
+    stream = await service.profile_bucket.open_download_stream(ObjectId(profile.profile_image_id))
     content: bytes = await stream.read()
     return Response(content, media_type=stream.metadata.get("content_type", "image/jpeg"))
 
@@ -107,13 +121,13 @@ async def update_portfolio(
 
     image_data = None
     if updated_profile.profile_image_id:
-        stream = await service._get_gridfs_bucket().open_download_stream(ObjectId(updated_profile.profile_image_id))
+        stream = await service.profile_bucket.open_download_stream(ObjectId(updated_profile.profile_image_id))
         profile_image_content: bytes = await stream.read()
         image_data = base64.b64encode(profile_image_content).decode("utf-8")
 
     resume_data = None
     if updated_profile.resume_file_id:
-        stream = await service._get_gridfs_bucket().open_download_stream(ObjectId(updated_profile.resume_file_id))
+        stream = await service.resume_bucket.open_download_stream(ObjectId(updated_profile.resume_file_id))
         resume_content: bytes = await stream.read()
         resume_data = base64.b64encode(resume_content).decode("utf-8")
 
@@ -287,7 +301,7 @@ async def get_skill_image(service: PortfolioServiceDep, skill_id: UUID):
     skill = await service.get_skill_by_id(skill_id)
     if not skill or not skill.image_id:
         raise HTTPException(status_code=404, detail="No image found for this skill")
-    stream = await service._get_gridfs_bucket().open_download_stream(ObjectId(skill.image_id))
+    stream = await service.skill_bucket.open_download_stream(ObjectId(skill.image_id))
     content: bytes = await stream.read()
     return Response(content, media_type=stream.metadata.get("content_type", "image/jpeg"))
 
