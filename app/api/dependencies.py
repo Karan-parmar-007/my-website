@@ -15,15 +15,15 @@ from app.api.routes.v1.portfolio.services import PortfolioService
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 MongoDBDep = Annotated[AsyncIOMotorDatabase, Depends(get_mongo_db)]
 
-# Service Dependency
-def get_portfolio_service(
+# Service Dependency - make it async
+async def get_portfolio_service(
     session: SessionDep,
     mongo: MongoDBDep
 ) -> PortfolioService:
     return PortfolioService(session=session, mongo=mongo)
 
 
-def get_user_service(
+async def get_user_service(
     session: SessionDep,
     mongo: MongoDBDep
 ) -> UserService:

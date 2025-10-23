@@ -85,7 +85,9 @@ class UserCreate(BaseModel):
 class UserCreateResponse(BaseModel):
     status: str
     message: str
-    token: Optional[str] = None
+    access_token: Optional[str] = None
+    token_type: Optional[str] = None
+    access_token_expires_in: Optional[int] = None
     user: Optional[UserRead] = None
 
 class UserUpdate(BaseModel):
@@ -100,7 +102,9 @@ class UserLogin(BaseModel):
 class UserLoginResponse(BaseModel):
     status: str
     message: str
-    token: Optional[str] = None
+    access_token: Optional[str] = None
+    token_type: Optional[str] = None
+    access_token_expires_in: Optional[int] = None
     user: Optional[UserRead] = None
 
 

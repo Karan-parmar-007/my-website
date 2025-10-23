@@ -1,11 +1,7 @@
 # app/api/dependencies/auth.py
-from fastapi import Depends, HTTPException, status, Request
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import Depends, HTTPException, status, Request, Cookie
 from typing import Optional, Dict, Any
 from app.utils.security import verify_token
-
-# Security scheme
-security = HTTPBearer()
 
 class AuthDependency:
     """Base authentication dependency"""
@@ -13,12 +9,18 @@ class AuthDependency:
     async def __call__(
         self, 
         request: Request,
-        credentials: HTTPAuthorizationCredentials = Depends(security)
+        access_token: Optional[str] = Cookie(None)
     ) -> Dict[str, Any]:
-        """Verify JWT token and return user data"""
+        """Verify JWT token from cookie and return user data"""
+        if not access_token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Not authenticated",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
         try:
-            payload = verify_token(credentials.credentials)
-            # Store user data in request state for access in route
+            payload = verify_token(access_token)
             request.state.user = payload
             return payload
         except Exception as e:
@@ -27,6 +29,5 @@ class AuthDependency:
                 detail="Could not validate credentials",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        
 
 require_auth = AuthDependency()

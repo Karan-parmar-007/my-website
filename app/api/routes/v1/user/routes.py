@@ -32,6 +32,7 @@ from app.api.routes.v1.user.schemas import (
 from app.common.dependencies.jwt_auth import (
     require_auth,
 )
+from app.utils.security import ACCESS_TOKEN_EXPIRE_SECONDS
 from bson import ObjectId
 import base64
 from uuid import UUID
@@ -44,6 +45,7 @@ router = APIRouter()
 
 @router.post("/register", response_model=UserCreateResponse, status_code=status.HTTP_201_CREATED)
 async def create_user(
+    response: Response,
     service: UserServiceDep,
     data: UserCreate = Depends(),
 ):
@@ -54,11 +56,24 @@ async def create_user(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=result["message"]
         )
-
+    
+    # Set token as HttpOnly cookie
+    response.set_cookie(
+        key="access_token",
+        value=result["token"],
+        httponly=True,
+        secure=True,  # Set to True in production (requires HTTPS)
+        samesite="lax",
+        max_age=7 * 24 * 60 * 60  # 7 days
+    )
+    
+    # Don't send token in response body
+    result["token"] = None
     return result
 
 @router.post("/login", response_model=UserLoginResponse)
 async def login_user(
+    response: Response,
     service: UserServiceDep,
     data: UserLogin = Depends(),
 ):
@@ -70,8 +85,25 @@ async def login_user(
             detail=result["message"]
         )
     
+    # Set token as HttpOnly cookie
+    response.set_cookie(
+        key="access_token",
+        value=result["token"],
+        httponly=True,
+        secure=True,  # Set to True in production
+        samesite="lax",
+        max_age=7 * 24 * 60 * 60
+    )
+    
+    result["token"] = None
     return result
 
+
+
+@router.post("/logout")
+async def logout(response: Response):
+    response.delete_cookie(key="access_token")
+    return {"message": "Logged out successfully"}
 
 @router.get("/me", response_model=UserRead)
 async def get_current_user(
@@ -179,7 +211,7 @@ async def delete_permission(
 @router.post("/roles", response_model=UserRoleRead, status_code=status.HTTP_201_CREATED)
 async def create_user_role(
     service: UserServiceDep,
-    data: UserRoleCreate = Depends(),
+    data: UserRoleCreate,
 ):
     result = await service.create_user_role(data)
     # service returns an error dict on duplicate/db error
@@ -262,7 +294,7 @@ async def delete_user_role(
 @router.post("/role-permissions", response_model=RolePermissionRead, status_code=status.HTTP_201_CREATED)
 async def assign_permission_to_role(
     service: UserServiceDep,
-    data: RolePermissionCreate = Depends(),
+    data: RolePermissionCreate,
 ):
     result = await service.create_role_permission(data)
     if not result:

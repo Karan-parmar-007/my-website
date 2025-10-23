@@ -13,6 +13,7 @@ class ProfileInfoRead(BaseModel):
     id: UUID
     name: str
     about: Optional[str]
+    headline: Optional[str]
     email: EmailStr
     phone: Optional[str]
     location: Optional[str]
@@ -29,6 +30,7 @@ class ProfileInfoRead(BaseModel):
 class ProfileInfoCreate(BaseModel):
     name: str
     about: Optional[str] = None
+    headline: Optional[str] = None
     email: EmailStr
     phone: Optional[str] = None
     location: Optional[str] = None
@@ -39,6 +41,7 @@ class ProfileInfoCreate(BaseModel):
 class ProfileInfoUpdate(BaseModel):
     name: Optional[str] = None
     about: Optional[str] = None
+    headline: Optional[str] = None
     email: Optional[EmailStr] = None
     phone: Optional[str] = None
     location: Optional[str] = None
@@ -129,6 +132,7 @@ class ProfileInfoUpdateForm(BaseModel):
 # ----------------------------------------
 
 class EducationCreate(BaseModel):
+    sequence: Optional[int] = None
     school: str
     degree: str
     start_year: int
@@ -138,6 +142,7 @@ class EducationCreate(BaseModel):
 
 class EducationUpdate(BaseModel):
     id: UUID
+    sequence: Optional[int] = None
     school: Optional[str] = None
     degree: Optional[str] = None
     start_year: Optional[int] = None
@@ -158,6 +163,7 @@ class EducationRead(EducationCreate):
 
 class WorkExperienceCreate(BaseModel):
     company: str
+    sequence: int
     position: str
     start_date: date
     end_date: Optional[date] = None
@@ -165,6 +171,7 @@ class WorkExperienceCreate(BaseModel):
 
 class WorkExperienceUpdate(BaseModel):
     id: UUID
+    sequence: Optional[int] = None
     company: Optional[str] = None
     position: Optional[str] = None
     start_date: Optional[date] = None

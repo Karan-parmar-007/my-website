@@ -10,7 +10,7 @@ from app.api.routes.v1.user.models import UserRole, Permission, Users, RolePermi
 from app.api.routes.v1.user.schemas import  UserRoleRead, UserRoleCreate, UserRoleUpdate
 from app.api.routes.v1.user.schemas import PermissionRead, PermissionCreate, PermissionUpdate, RolePermissionRead, RolePermissionCreate
 from app.api.routes.v1.user.schemas import UserRead, UserCreate, UserUpdate, UserLogin, ForgetPasswordRequest, ResetPasswordRequest, ChangePasswordRequest
-from app.utils.security import hash_password, create_access_token, verify_password
+from app.utils.security import hash_password, issue_access_token, verify_password
 
 class UserService:
     def __init__(self, session: AsyncSession, mongo: AsyncIOMotorDatabase):
@@ -43,102 +43,111 @@ class UserService:
             if existing_user:
                 return {
                     "status": "error",
-                    "message": "User with this email already exists"
+                    "message": "User with this email already exists",
+                    "access_token": None,
+                    "token_type": None,
+                    "access_token_expires_in": None,
+                    "user": None,
                 }
-
-            # Get or create basic user role
-            role_query = select(UserRole).where(UserRole.name == "basic user")
+                
+            # Get default role (you might want to create this if it doesn't exist)
+            role_query = select(UserRole).where(UserRole.name == "user")
             role_result = await self.session.execute(role_query)
-            basic_role = role_result.scalar_one_or_none()
+            default_role = role_result.scalar_one_or_none()
             
-            if not basic_role:
-                # Create a default basic user role if it doesn't exist
-                basic_role = UserRole(
-                    name="basic_user",
-                    description="Basic user role with limited permissions"
-                )
-                self.session.add(basic_role)
-                await self.session.flush()  # Get the ID without committing
-
-            # Create new user
+            if not default_role:
+                # Create default role if it doesn't exist
+                default_role = UserRole(name="user", description="Default user role")
+                self.session.add(default_role)
+                await self.session.commit()
+                await self.session.refresh(default_role)
+            
+            # Hash password and create user
             hashed_password = hash_password(user_create.password)
             new_user = Users(
                 preferred_name=user_create.preferred_name,
                 email=user_create.email,
                 password_hash=hashed_password,
-                role_id=basic_role.id,  # Fixed: Use actual role ID instead of hardcoded
-                email_verified=False
+                role_id=default_role.id
             )
-
+            
             self.session.add(new_user)
             await self.session.commit()
             await self.session.refresh(new_user)
-
-            # Create JWT token
-            token_data = {"user_id": str(new_user.id)}
-            access_token = create_access_token(data=token_data)
-
-            # Prepare response
-            user_data = UserRead.model_validate(new_user).model_dump()
             
+            # Generate JWT token - THIS IS THE KEY PART
+            tokens = issue_access_token(str(new_user.id), {"user_id": str(new_user.id)})
+
+            user_data = UserRead.model_validate(new_user).model_dump()
+
             return {
                 "status": "success",
-                "message": "User created successfully",
-                "token": access_token,
-                "user": user_data
+                "message": "User registered successfully",
+                **tokens,
+                "user": user_data,
             }
-
+            
         except Exception as e:
             await self.session.rollback()
-            error_message = f"Error creating user: {str(e)}"
             return {
                 "status": "error",
-                "message": error_message
+                "message": str(e),
+                "access_token": None,
+                "token_type": None,
+                "access_token_expires_in": None,
+                "user": None,
             }
-        
+
     async def authenticate_user(self, user_login: UserLogin) -> dict:
         try:
-            # Check if user already exists
+            # Find user by email
             query = select(Users).where(Users.email == user_login.email)
             result = await self.session.execute(query)
-            existing_user = result.scalar_one_or_none()
+            user = result.scalar_one_or_none()
             
-            if not existing_user:
+            if not user:
                 return {
                     "status": "error",
-                    "message": "User with this email dosen't exists"
-                }
-
-
-            # Create new user
-            if not verify_password(user_login.password, existing_user.password_hash):
-                return {
-                    "status": "error",
-                    "message": "Incorrect password"
+                    "message": "Invalid email or password",
+                    "access_token": None,
+                    "token_type": None,
+                    "access_token_expires_in": None,
+                    "user": None,
                 }
             
-            # Create JWT token
-            token_data = {"user_id": str(existing_user.id)}
-            access_token = create_access_token(data=token_data)
+            # Verify password
+            if not verify_password(user_login.password, user.password_hash):
+                return {
+                    "status": "error",
+                    "message": "Invalid email or password",
+                    "access_token": None,
+                    "token_type": None,
+                    "access_token_expires_in": None,
+                    "user": None,
+                }
+            
+            # Generate JWT token - THIS IS THE KEY PART
+            tokens = issue_access_token(str(user.id), {"user_id": str(user.id)})
 
-            # Prepare response
-            user_data = UserRead.model_validate(existing_user).model_dump()
+            user_data = UserRead.model_validate(user).model_dump()
 
             return {
                 "status": "success",
-                "message": "User logged in successfully",
-                "token": access_token,
-                "user": user_data
+                "message": "Login successful",
+                **tokens,
+                "user": user_data,
             }
-
+            
         except Exception as e:
-            await self.session.rollback()
-            error_message = f"Error creating user: {str(e)}"
             return {
                 "status": "error",
-                "message": error_message
+                "message": str(e),
+                "access_token": None,
+                "token_type": None,
+                "access_token_expires_in": None,
+                "user": None,
             }
-    
+
     async def update_user(self, user_id: UUID, user_update: UserUpdate) -> Optional[dict]:
         query = select(Users).where(Users.id == user_id)
         result = await self.session.execute(query)

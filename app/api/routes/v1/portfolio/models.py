@@ -76,6 +76,11 @@ class Education(SQLModel, table=True):
         sa_column=Column(postgresql.UUID(as_uuid=True), primary_key=True, default=uuid4)
     )
 
+    sequence: int = Field(
+        sa_column=Column(postgresql.INTEGER, nullable=False)
+    )
+
+
     school: str = Field(
         max_length=100,
         sa_column=Column(postgresql.VARCHAR(100), nullable=False)
@@ -107,6 +112,10 @@ class Education(SQLModel, table=True):
 class WorkExperience(SQLModel, table=True):
     id: UUID = Field(
         sa_column=Column(postgresql.UUID(as_uuid=True), primary_key=True, default=uuid4)
+    )
+
+    sequence: int = Field(
+        sa_column=Column(postgresql.INTEGER, nullable=False)
     )
 
     company: str = Field(
