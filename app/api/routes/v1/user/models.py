@@ -69,7 +69,7 @@ class Users(SQLModel, table=True):
 
     preferred_name: str = Field(
         max_length=50,
-        sa_column=Column(postgresql.VARCHAR(50), nullable=False, unique=True)
+        sa_column=Column(postgresql.VARCHAR(50), nullable=False)
     )
 
     email: EmailStr = Field(
@@ -97,7 +97,4 @@ class Users(SQLModel, table=True):
     updated_at: datetime = Field(
         sa_column=Column(postgresql.TIMESTAMP(timezone=True), nullable=False, default=datetime.now, onupdate=datetime.now)
     )
-
-
-
 

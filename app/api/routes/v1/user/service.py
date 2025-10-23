@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from app.api.routes.v1.user.models import UserRole, Permission, Users, RolePermission
 from app.api.routes.v1.user.schemas import  UserRoleRead, UserRoleCreate, UserRoleUpdate
 from app.api.routes.v1.user.schemas import PermissionRead, PermissionCreate, PermissionUpdate, RolePermissionRead, RolePermissionCreate
-from app.api.routes.v1.user.schemas import UserRead, UserCreate, UserUpdate, UserLogin, ForgetPasswordRequest, ResetPasswordRequest, ChangePasswordRequest
+from app.api.routes.v1.user.schemas import UserRead, UserCreate, UserUpdate, UserLogin
 from app.utils.security import hash_password, issue_access_token, verify_password
 
 class UserService:
@@ -18,10 +18,9 @@ class UserService:
         self.mongo = mongo
 
 
-# ----------------------------------------
-# 🔹 User
-# ----------------------------------------
-
+    # ----------------------------------------
+    # 🔹 User
+    # ----------------------------------------
 
     async def get_user_by_id(self, user_id: UUID) -> dict:
         query = select(Users).where(Users.id == user_id)
@@ -29,124 +28,84 @@ class UserService:
         user = result.scalar_one_or_none()
         if not user:
             return {}
+        return UserRead.model_validate(user).model_dump()
 
-        user_data = UserRead.model_validate(user).model_dump()
-        return user_data
+    async def _get_or_create_default_role(self) -> UserRole:
+        # Try to find a role named "user", otherwise create it
+        q = select(UserRole).where(UserRole.name == "user")
+        res = await self.session.execute(q)
+        role = res.scalar_one_or_none()
+        if role:
+            return role
+        role = UserRole(name="user", description="Default user role")
+        self.session.add(role)
+        # flush to get role.id without committing yet
+        await self.session.flush()
+        return role
 
     async def create_user(self, user_create: UserCreate) -> dict:
         try:
-            # Check if user already exists
-            query = select(Users).where(Users.email == user_create.email)
+            # Check if user already exists by email
+            query = select(Users).where(
+                (Users.email == user_create.email)
+            )
             result = await self.session.execute(query)
-            existing_user = result.scalar_one_or_none()
-            
-            if existing_user:
-                return {
-                    "status": "error",
-                    "message": "User with this email already exists",
-                    "access_token": None,
-                    "token_type": None,
-                    "access_token_expires_in": None,
-                    "user": None,
-                }
-                
-            # Get default role (you might want to create this if it doesn't exist)
-            role_query = select(UserRole).where(UserRole.name == "user")
-            role_result = await self.session.execute(role_query)
-            default_role = role_result.scalar_one_or_none()
-            
-            if not default_role:
-                # Create default role if it doesn't exist
-                default_role = UserRole(name="user", description="Default user role")
-                self.session.add(default_role)
-                await self.session.commit()
-                await self.session.refresh(default_role)
-            
-            # Hash password and create user
-            hashed_password = hash_password(user_create.password)
-            new_user = Users(
+            existing = result.scalar_one_or_none()
+            if existing:
+                return {"status": "error", "message": "User with this email already exists"}
+
+            role = await self._get_or_create_default_role()
+
+            user = Users(
                 preferred_name=user_create.preferred_name,
                 email=user_create.email,
-                password_hash=hashed_password,
-                role_id=default_role.id
+                password_hash=hash_password(user_create.password),
+                role_id=role.id,
             )
-            
-            self.session.add(new_user)
+            self.session.add(user)
             await self.session.commit()
-            await self.session.refresh(new_user)
-            
-            # Generate JWT token - THIS IS THE KEY PART
-            tokens = issue_access_token(str(new_user.id), {"user_id": str(new_user.id)})
+            await self.session.refresh(user)
 
-            user_data = UserRead.model_validate(new_user).model_dump()
+            token_bundle = issue_access_token(
+                subject=str(user.id),
+                additional_claims={"user_id": str(user.id), "email": str(user.email)}
+            )
 
             return {
                 "status": "success",
                 "message": "User registered successfully",
-                **tokens,
-                "user": user_data,
+                **token_bundle,
+                "user": UserRead.model_validate(user).model_dump(),
             }
-            
+
+        except IntegrityError:
+            await self.session.rollback()
+            return {"status": "error", "message": "Constraint violation creating user"}
         except Exception as e:
             await self.session.rollback()
-            return {
-                "status": "error",
-                "message": str(e),
-                "access_token": None,
-                "token_type": None,
-                "access_token_expires_in": None,
-                "user": None,
-            }
+            return {"status": "error", "message": f"Failed to create user: {e}"}
 
     async def authenticate_user(self, user_login: UserLogin) -> dict:
         try:
-            # Find user by email
             query = select(Users).where(Users.email == user_login.email)
             result = await self.session.execute(query)
             user = result.scalar_one_or_none()
-            
-            if not user:
-                return {
-                    "status": "error",
-                    "message": "Invalid email or password",
-                    "access_token": None,
-                    "token_type": None,
-                    "access_token_expires_in": None,
-                    "user": None,
-                }
-            
-            # Verify password
-            if not verify_password(user_login.password, user.password_hash):
-                return {
-                    "status": "error",
-                    "message": "Invalid email or password",
-                    "access_token": None,
-                    "token_type": None,
-                    "access_token_expires_in": None,
-                    "user": None,
-                }
-            
-            # Generate JWT token - THIS IS THE KEY PART
-            tokens = issue_access_token(str(user.id), {"user_id": str(user.id)})
+            if not user or not verify_password(user_login.password, user.password_hash):
+                return {"status": "error", "message": "Invalid email or password"}
 
-            user_data = UserRead.model_validate(user).model_dump()
+            token_bundle = issue_access_token(
+                subject=str(user.id),
+                additional_claims={"user_id": str(user.id), "email": str(user.email)}
+            )
 
             return {
                 "status": "success",
                 "message": "Login successful",
-                **tokens,
-                "user": user_data,
+                **token_bundle,
+                "user": UserRead.model_validate(user).model_dump(),
             }
-            
         except Exception as e:
-            return {
-                "status": "error",
-                "message": str(e),
-                "access_token": None,
-                "token_type": None,
-                "access_token_expires_in": None,
-                "user": None,
-            }
+            return {"status": "error", "message": f"Failed to authenticate: {e}"}
 
     async def update_user(self, user_id: UUID, user_update: UserUpdate) -> Optional[dict]:
         query = select(Users).where(Users.id == user_id)
@@ -155,8 +114,12 @@ class UserService:
         if not user:
             return None
 
-        user_data = user_update.model_dump(exclude_unset=True)
-        for key, value in user_data.items():
+        data = user_update.model_dump(exclude_unset=True)
+        # handle password separately
+        if "password" in data:
+            user.password_hash = hash_password(data.pop("password"))
+
+        for key, value in data.items():
             setattr(user, key, value)
 
         self.session.add(user)
@@ -176,17 +139,15 @@ class UserService:
         return True
     
 
-
-    
-# ----------------------------------------
-# 🔹 User Role
-# ----------------------------------------
+    # ----------------------------------------
+    # 🔹 User Role
+    # ----------------------------------------
 
     async def get_user_roles(self) -> List[dict]:
         query = select(UserRole)
         result = await self.session.execute(query)
-        user_roles = result.scalars().all()
-        return [UserRoleRead.model_validate(ur).model_dump() for ur in user_roles]
+        roles = result.scalars().all()
+        return [UserRoleRead.model_validate(ur).model_dump() for ur in roles]
     
     async def get_user_role_by_id(self, role_id: UUID) -> Optional[dict]:
         query = select(UserRole).where(UserRole.id == role_id)
@@ -198,25 +159,17 @@ class UserService:
     
     async def create_user_role(self, user_role_create: UserRoleCreate) -> dict:
         try:
-            # check duplicate by name first
-            query = select(UserRole).where(UserRole.name == user_role_create.name)
-            result = await self.session.execute(query)
-            existing = result.scalar_one_or_none()
-            if existing:
-                return {"status": "error", "message": "User role with this name already exists"}
-
-            user_role = UserRole(**user_role_create.model_dump())
-            self.session.add(user_role)
+            role = UserRole(**user_role_create.model_dump())
+            self.session.add(role)
             await self.session.commit()
-            await self.session.refresh(user_role)
-            return UserRoleRead.model_validate(user_role).model_dump()
-
+            await self.session.refresh(role)
+            return UserRoleRead.model_validate(role).model_dump()
         except IntegrityError:
             await self.session.rollback()
-            return {"status": "error", "message": "Database integrity error: duplicate or invalid data"}
+            return {"status": "error", "message": "Role name must be unique"}
         except Exception as e:
             await self.session.rollback()
-            return {"status": "error", "message": f"Error creating user role: {e}"}
+            return {"status": "error", "message": f"Failed to create role: {e}"}
     
     async def update_user_role(self, role_id: UUID, user_role_update: UserRoleUpdate) -> Optional[dict]:
         query = select(UserRole).where(UserRole.id == role_id)
@@ -225,8 +178,8 @@ class UserService:
         if not user_role:
             return None
 
-        user_role_data = user_role_update.model_dump(exclude_unset=True)
-        for key, value in user_role_data.items():
+        data = user_role_update.model_dump(exclude_unset=True)
+        for key, value in data.items():
             setattr(user_role, key, value)
 
         self.session.add(user_role)
@@ -245,9 +198,9 @@ class UserService:
         await self.session.commit()
         return True
     
-# ----------------------------------------
-# 🔹 Permission
-# ----------------------------------------
+    # ----------------------------------------
+    # 🔹 Permission
+    # ----------------------------------------
 
     async def get_permissions(self) -> List[dict]:
         query = select(Permission)
@@ -265,28 +218,17 @@ class UserService:
     
     async def create_permission(self, permission_create: PermissionCreate) -> dict:
         try:
-            # check duplicate by name first
-            query = select(Permission).where(Permission.name == permission_create.name)
-            result = await self.session.execute(query)
-            existing = result.scalar_one_or_none()
-            if existing:
-                return {"status": "error", "message": "Permission with this name already exists"}
-
-            # create permission (SQLModel defaults applied)
             permission = Permission(**permission_create.model_dump())
             self.session.add(permission)
             await self.session.commit()
             await self.session.refresh(permission)
-
-            permission_data = PermissionRead.model_validate(permission).model_dump()
-            return {"status": "success", "permission": permission_data}
-
-        except IntegrityError as e:
+            return {"status": "success", "permission": PermissionRead.model_validate(permission).model_dump()}
+        except IntegrityError:
             await self.session.rollback()
-            return {"status": "error", "message": "Database integrity error: duplicate or invalid data"}
+            return {"status": "error", "message": "Permission name must be unique"}
         except Exception as e:
             await self.session.rollback()
-            return {"status": "error", "message": f"Error creating permission: {e}"}
+            return {"status": "error", "message": f"Failed to create permission: {e}"}
     
     async def update_permission(self, permission_id: UUID, permission_update: PermissionUpdate) -> Optional[dict]:
         query = select(Permission).where(Permission.id == permission_id)
@@ -295,8 +237,8 @@ class UserService:
         if not permission:
             return None
 
-        permission_data = permission_update.model_dump(exclude_unset=True)
-        for key, value in permission_data.items():
+        data = permission_update.model_dump(exclude_unset=True)
+        for key, value in data.items():
             setattr(permission, key, value)
 
         self.session.add(permission)
@@ -315,9 +257,9 @@ class UserService:
         await self.session.commit()
         return True
     
-# ----------------------------------------
-# 🔹 RolePermission
-# ----------------------------------------
+    # ----------------------------------------
+    # 🔹 RolePermission
+    # ----------------------------------------
 
     async def get_role_permissions(self) -> List[dict]:
         query = select(RolePermission)

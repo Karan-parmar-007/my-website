@@ -47,7 +47,7 @@ router = APIRouter()
 async def create_user(
     response: Response,
     service: UserServiceDep,
-    data: UserCreate = Depends(),
+    data: UserCreate,  # read JSON body
 ):
     result = await service.create_user(data)
     
@@ -60,22 +60,22 @@ async def create_user(
     # Set token as HttpOnly cookie
     response.set_cookie(
         key="access_token",
-        value=result["token"],
+        value=result["access_token"],
         httponly=True,
         secure=True,  # Set to True in production (requires HTTPS)
         samesite="lax",
-        max_age=7 * 24 * 60 * 60  # 7 days
+        max_age=ACCESS_TOKEN_EXPIRE_SECONDS,
     )
     
     # Don't send token in response body
-    result["token"] = None
+    result["access_token"] = None
     return result
 
 @router.post("/login", response_model=UserLoginResponse)
 async def login_user(
     response: Response,
     service: UserServiceDep,
-    data: UserLogin = Depends(),
+    data: UserLogin,  # read JSON body
 ):
     result = await service.authenticate_user(data)
     
@@ -88,17 +88,15 @@ async def login_user(
     # Set token as HttpOnly cookie
     response.set_cookie(
         key="access_token",
-        value=result["token"],
+        value=result["access_token"],
         httponly=True,
         secure=True,  # Set to True in production
         samesite="lax",
-        max_age=7 * 24 * 60 * 60
+        max_age=ACCESS_TOKEN_EXPIRE_SECONDS,
     )
     
-    result["token"] = None
+    result["access_token"] = None
     return result
-
-
 
 @router.post("/logout")
 async def logout(response: Response):
@@ -118,14 +116,14 @@ async def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token: user_id missing"
         )
-    user = await service.get_user_by_id(user_id)
+    # Cast to UUID for DB comparison
+    user = await service.get_user_by_id(UUID(user_id))
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
         )
     return user
-
 
 # ----------------------------------------
 # 🔹 Permission
@@ -134,7 +132,8 @@ async def get_current_user(
 @router.post("/permissions", response_model=PermissionRead, status_code=status.HTTP_201_CREATED)
 async def create_permission(
     service: UserServiceDep,
-    data: PermissionCreate = Depends(require_auth),
+    data: PermissionCreate,  # read JSON body
+    user: Dict[str, Any] = Depends(require_auth),  # require auth
 ):
     result = await service.create_permission(data)
     if result["status"] == "error":
@@ -142,7 +141,8 @@ async def create_permission(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=result["message"]
         )
-    return result
+    # service returns {"status":"success","permission": {...}}
+    return result["permission"]
 
 @router.get("/permissions/{permission_id}", response_model=PermissionRead)
 async def get_permission(
@@ -315,8 +315,6 @@ async def list_role_permissions(
             detail="No role permissions found"
         )
     return role_permissions
-
-
 
 @router.delete("/role-permissions/{role_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def remove_permission_from_role(
