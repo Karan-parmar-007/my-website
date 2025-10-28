@@ -43,6 +43,18 @@ class UserService:
         await self.session.flush()
         return role
 
+    async def _get_or_create_role_by_name(self, name: str) -> UserRole:
+        """Find a role by name, create it if missing (flush but do not commit)."""
+        q = select(UserRole).where(UserRole.name == name)
+        res = await self.session.execute(q)
+        role = res.scalar_one_or_none()
+        if role:
+            return role
+        role = UserRole(name=name, description=f"{name} role")
+        self.session.add(role)
+        await self.session.flush()
+        return role
+
     async def create_user(self, user_create: UserCreate) -> dict:
         try:
             # Check if user already exists by email
@@ -218,10 +230,29 @@ class UserService:
     
     async def create_permission(self, permission_create: PermissionCreate) -> dict:
         try:
+            # create permission (but don't commit yet so we can also create role-permission in same transaction)
             permission = Permission(**permission_create.model_dump())
             self.session.add(permission)
+            await self.session.flush()  # ensure permission.id is available
+
+            # ensure super_admin role exists (create if missing)
+            super_role = await self._get_or_create_role_by_name("super_admin")
+
+            # only create role-permission link if it doesn't already exist
+            q = select(RolePermission).where(
+                RolePermission.role_id == super_role.id,
+                RolePermission.permission_id == permission.id
+            )
+            res = await self.session.execute(q)
+            existing_rp = res.scalar_one_or_none()
+            if not existing_rp:
+                rp = RolePermission(role_id=super_role.id, permission_id=permission.id)
+                self.session.add(rp)
+
+            # commit everything together
             await self.session.commit()
             await self.session.refresh(permission)
+
             return {"status": "success", "permission": PermissionRead.model_validate(permission).model_dump()}
         except IntegrityError:
             await self.session.rollback()

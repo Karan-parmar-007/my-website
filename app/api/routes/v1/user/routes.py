@@ -29,9 +29,17 @@ from app.api.routes.v1.user.schemas import (
     UserLogin,
 )
 
+from app.api.routes.v1.user.models import (
+    Users,
+    UserRole,
+    Permission,
+    RolePermission,
+)
+
 from app.common.dependencies.jwt_auth import (
     require_auth,
 )
+from app.common.dependencies.role_and_permission_check_auth import require_roles_and_permission
 from app.utils.security import ACCESS_TOKEN_EXPIRE_SECONDS
 from bson import ObjectId
 import base64
@@ -99,7 +107,10 @@ async def login_user(
     return result
 
 @router.post("/logout")
-async def logout(response: Response):
+async def logout(
+    response: Response,
+    user: Dict[str, Any] = Depends(require_auth),
+):
     response.delete_cookie(key="access_token")
     return {"message": "Logged out successfully"}
 
@@ -131,24 +142,20 @@ async def get_current_user(
 
 @router.post("/permissions", response_model=PermissionRead, status_code=status.HTTP_201_CREATED)
 async def create_permission(
-    service: UserServiceDep,
-    data: PermissionCreate,  # read JSON body
-    user: Dict[str, Any] = Depends(require_auth),  # require auth
+    data: PermissionCreate,
+    service: UserServiceDep,  # Top-level: Uses Annotated for type-hinting
+    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin"], permission_name="add_permission"))],  # Factory injects roles/perms!
 ):
     result = await service.create_permission(data)
     if result["status"] == "error":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=result["message"]
-        )
-    # service returns {"status":"success","permission": {...}}
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result["message"])
     return result["permission"]
 
 @router.get("/permissions/{permission_id}", response_model=PermissionRead)
 async def get_permission(
     permission_id: UUID,
     service: UserServiceDep,
-
+    user: Dict[str, Any] = Depends(require_auth),
 ):
     permission = await service.get_permission_by_id(permission_id)
     if not permission:
@@ -161,6 +168,7 @@ async def get_permission(
 @router.get("/permissions", response_model=list[PermissionRead])
 async def list_permissions(
     service: UserServiceDep,
+    user: Dict[str, Any] = Depends(require_auth),
 ):
     permissions = await service.get_permissions()
     return permissions
@@ -169,7 +177,8 @@ async def list_permissions(
 async def update_permission(
     permission_id: UUID,
     data: PermissionUpdate,
-    service: UserServiceDep,  # removed the `= Depends()` default to avoid Annotated+default conflict
+    service: UserServiceDep,
+    user: Dict[str, Any] = Depends(require_auth),
 ):
     """
     Update a permission by ID.
@@ -189,6 +198,7 @@ async def update_permission(
 async def delete_permission(
     permission_id: UUID,
     service: UserServiceDep,
+    user: Dict[str, Any] = Depends(require_auth),
 ):
     """
     Delete a permission by ID.
@@ -212,6 +222,7 @@ async def delete_permission(
 async def create_user_role(
     service: UserServiceDep,
     data: UserRoleCreate,
+    user: Dict[str, Any] = Depends(require_auth),
 ):
     result = await service.create_user_role(data)
     # service returns an error dict on duplicate/db error
@@ -226,6 +237,7 @@ async def create_user_role(
 async def get_user_role(
     role_id: UUID,
     service: UserServiceDep,
+    user: Dict[str, Any] = Depends(require_auth),
 ):
     role = await service.get_user_role_by_id(role_id)
     if not role:
@@ -238,6 +250,7 @@ async def get_user_role(
 @router.get("/roles", response_model=list[UserRoleRead])
 async def list_user_roles(
     service: UserServiceDep,
+    user: Dict[str, Any] = Depends(require_auth),
 ):
     roles = await service.get_user_roles()
     if roles is None:
@@ -252,6 +265,7 @@ async def update_user_role(
     role_id: UUID,
     data: UserRoleUpdate,
     service: UserServiceDep,
+    user: Dict[str, Any] = Depends(require_auth),
 ):
     """
     Update a user role by ID.
@@ -271,6 +285,7 @@ async def update_user_role(
 async def delete_user_role(
     role_id: UUID,
     service: UserServiceDep,
+    user: Dict[str, Any] = Depends(require_auth),
 ):
     """
     Delete a user role by ID.
@@ -295,6 +310,7 @@ async def delete_user_role(
 async def assign_permission_to_role(
     service: UserServiceDep,
     data: RolePermissionCreate,
+    user: Dict[str, Any] = Depends(require_auth),
 ):
     result = await service.create_role_permission(data)
     if not result:
@@ -307,6 +323,7 @@ async def assign_permission_to_role(
 @router.get("/role-permissions", response_model=list[RolePermissionRead])
 async def list_role_permissions(
     service: UserServiceDep,
+    user: Dict[str, Any] = Depends(require_auth),
 ):
     role_permissions = await service.get_role_permissions()
     if role_permissions is None:
@@ -321,6 +338,7 @@ async def remove_permission_from_role(
     role_id: UUID,
     permission_id: UUID,
     service: UserServiceDep,
+    user: Dict[str, Any] = Depends(require_auth),
 ):
     result = await service.delete_role_permission(role_id, permission_id)
     if not result:
