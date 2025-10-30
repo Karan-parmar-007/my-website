@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr
-from typing import Optional
+from typing import Optional, List
 from uuid import UUID
 from datetime import datetime
 from fastapi import UploadFile, Form, File
@@ -95,6 +95,36 @@ class UserUpdate(BaseModel):
     email: Optional[EmailStr] = None
     password: Optional[str] = None
 
+class UserBasicUpdate(BaseModel):
+    """Basic user update - only name and email"""
+    preferred_name: Optional[str] = None
+    email: Optional[EmailStr] = None
+
+class UserAdminUpdate(BaseModel):
+    """Admin user update - all fields"""
+    preferred_name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    role_id: Optional[UUID] = None
+    email_verified: Optional[bool] = None
+
+class UserRoleUpdateRequest(BaseModel):
+    """Update only user role"""
+    role_id: UUID
+
+# New: full user detail read schema (do NOT expose password_hash)
+class UserDetailRead(BaseModel):
+    id: UUID
+    preferred_name: str
+    email: EmailStr
+    role_id: UUID
+    role: Optional[UserRoleRead] = None
+    email_verified: bool
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
@@ -122,7 +152,12 @@ class ChangePasswordRequest(BaseModel):
     confirm_password: str
 
 
+# New schema for role validator
+class RoleValidatorRequest(BaseModel):
+    required_roles: List[str]
 
+class RoleValidatorResponse(BaseModel):
+    has_role: bool
 
 # Resolve forward references
 UserRead.model_rebuild()

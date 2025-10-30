@@ -27,6 +27,12 @@ from app.api.routes.v1.user.schemas import (
     UserCreateResponse,
     UserLoginResponse,
     UserLogin,
+    UserBasicUpdate,
+    UserAdminUpdate,
+    UserRoleUpdateRequest,
+    UserDetailRead,  # added
+    RoleValidatorRequest,
+    RoleValidatorResponse,
 )
 
 from app.api.routes.v1.user.models import (
@@ -40,10 +46,11 @@ from app.common.dependencies.jwt_auth import (
     require_auth,
 )
 from app.common.dependencies.role_and_permission_check_auth import require_roles_and_permission
-from app.utils.security import ACCESS_TOKEN_EXPIRE_SECONDS
+from app.utils.security import ACCESS_TOKEN_EXPIRE_SECONDS, decode_access_token
 from bson import ObjectId
 import base64
 from uuid import UUID
+from sqlmodel import select
 
 router = APIRouter()
 
@@ -135,6 +142,73 @@ async def get_current_user(
             detail="User not found"
         )
     return user
+
+@router.put("/me", response_model=UserRead)
+async def update_current_user_basic(
+    data: UserBasicUpdate,
+    service: UserServiceDep,
+    user_data: Dict[str, Any] = Depends(require_auth),
+):
+    """Update current user - only name and email (basic edit)"""
+    user_id = user_data.get("user_id")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token: user_id missing"
+        )
+    
+    updated = await service.update_user_basic(UUID(user_id), data)
+    if not updated:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    return updated
+
+@router.put("/users/{user_id}", response_model=UserRead)
+async def update_user_admin(
+    user_id: UUID,
+    data: UserAdminUpdate,
+    service: UserServiceDep,
+    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin", "admin"], permission_name="edit_user"))],
+):
+    """Admin update user - can update all fields including role and verification status"""
+    updated = await service.update_user_admin(user_id, data)
+    if not updated:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found or invalid role_id"
+        )
+    return updated
+
+@router.patch("/users/{user_id}/role", response_model=UserRead)
+async def update_user_role_only(
+    user_id: UUID,
+    data: UserRoleUpdateRequest,
+    service: UserServiceDep,
+    user: Dict[str, Any] = Depends(require_auth),
+    # user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin", "admin"], permission_name="edit_user_role"))],
+):
+    """Update only user role - requires admin privileges"""
+    updated = await service.update_user_role_only(user_id, data.role_id)
+    if not updated:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found or invalid role_id"
+        )
+    return updated
+
+@router.get("/users", response_model=list[UserDetailRead])
+async def fetch_all_users(
+    service: UserServiceDep,
+    user: Dict[str, Any] = Depends(require_auth),
+    # user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin", "admin"], permission_name="view_users"))],
+):
+    """
+    Admin endpoint - fetch all users with full details (password_hash is not returned).
+    """
+    users = await service.get_all_users()
+    return users
 
 # ----------------------------------------
 # 🔹 Permission
@@ -347,6 +421,23 @@ async def remove_permission_from_role(
             detail="Error removing permission from role"
         )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+@router.post("/role-validator", response_model=RoleValidatorResponse)
+async def role_validator(
+    data: RoleValidatorRequest,
+    service: UserServiceDep,
+    user_data: Dict[str, Any] = Depends(require_auth),
+):
+    """
+    Validate whether the current user (from JWT) has at least one of the required roles.
+    Frontend should POST { required_roles: ["role1", "role2"] } with Authorization header.
+    Returns { has_role: true } or { has_role: false }.
+    """
+    user_id = user_data.get("user_id") or user_data.get("sub")
+    if not user_id:
+        return {"has_role": False}
+    has_role = await service.user_has_any_role(user_id, data.required_roles)
+    return {"has_role": has_role}
 
 
 

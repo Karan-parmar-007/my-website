@@ -1,4 +1,4 @@
-from typing import Optional, Annotated
+from typing import Any, Dict, Optional, Annotated
 from fastapi import (
     APIRouter,
     HTTPException,
@@ -30,9 +30,12 @@ from app.api.routes.v1.portfolio.schemas import (
     SkillCategoryRead,
     SkillCategoryUpdate
 )
+from app.common.dependencies.role_and_permission_check_auth import require_roles_and_permission
+
 from bson import ObjectId
 import base64
 from uuid import UUID
+
 
 router = APIRouter()
 
@@ -94,7 +97,8 @@ async def get_profile_image(service: PortfolioServiceDep):
 @router.post("/profile-info", status_code=status.HTTP_201_CREATED)
 async def create_portfolio(
     service: PortfolioServiceDep,
-    form_data: Annotated[tuple[ProfileInfoCreateForm, Optional[UploadFile], Optional[UploadFile]], Depends(ProfileInfoCreateForm.as_form)]
+    form_data: Annotated[tuple[ProfileInfoCreateForm, Optional[UploadFile], Optional[UploadFile]], Depends(ProfileInfoCreateForm.as_form)],
+    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin"], permission_name="edit_portfolio"))]
 ):
     data, profile_image, resume_file = form_data
     profile_exist = await service.get_profile_info()
@@ -108,7 +112,8 @@ async def create_portfolio(
 @router.put("/profile-info", response_model=ProfileInfoRead)
 async def update_portfolio(
     service: PortfolioServiceDep,
-    form_data: Annotated[tuple[ProfileInfoUpdateForm, Optional[UploadFile], Optional[UploadFile]], Depends(ProfileInfoUpdateForm.as_form)]
+    form_data: Annotated[tuple[ProfileInfoUpdateForm, Optional[UploadFile], Optional[UploadFile]], Depends(ProfileInfoUpdateForm.as_form)],
+    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin"], permission_name="edit_portfolio"))]
 ):
     data, profile_image, resume_file = form_data
     profile = await service.get_profile_info()
@@ -138,7 +143,10 @@ async def update_portfolio(
 
 
 @router.delete("/profile-info", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_portfolio(service: PortfolioServiceDep):
+async def delete_portfolio(
+    service: PortfolioServiceDep,
+    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin"], permission_name="edit_portfolio"))]    
+):
     profile = await service.get_profile_info()
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
@@ -158,12 +166,20 @@ async def get_education(service: PortfolioServiceDep):
     return education
 
 @router.post("/education", status_code=status.HTTP_201_CREATED)
-async def create_education(service: PortfolioServiceDep, data: EducationCreate):
+async def create_education(
+    service: PortfolioServiceDep,
+    data: EducationCreate,
+    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin"], permission_name="edit_education"))]
+):
     education = await service.create_education(data)
     return {"message": "Education record created successfully", "education_id": str(education.id)}
 
 @router.put("/education", status_code=status.HTTP_200_OK)
-async def update_education(service: PortfolioServiceDep, data: EducationUpdate):
+async def update_education(
+    service: PortfolioServiceDep,
+    data: EducationUpdate,
+    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin"], permission_name="edit_education"))]    
+):
     try:
         updated_education = await service.update_education(data)
         if not updated_education:
@@ -173,7 +189,11 @@ async def update_education(service: PortfolioServiceDep, data: EducationUpdate):
         raise HTTPException(status_code=404, detail=str(e))
     
 @router.delete("/education/{education_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_education(service: PortfolioServiceDep, education_id: UUID):
+async def delete_education(
+    service: PortfolioServiceDep,
+    education_id: UUID,
+    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin"], permission_name="edit_education"))]
+):
     try:
         await service.delete_education(education_id)
     except ValueError as e:
@@ -194,12 +214,20 @@ async def get_work_experience(service: PortfolioServiceDep):
     return work_experience
 
 @router.post("/work-experience", status_code=status.HTTP_201_CREATED)
-async def create_work_experience(service: PortfolioServiceDep, data: WorkExperienceCreate):
+async def create_work_experience(
+    service: PortfolioServiceDep, 
+    data: WorkExperienceCreate,
+    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin"], permission_name="edit_work_experience"))]
+):
     work_experience = await service.create_work_experience(data)
     return {"message": "Work experience record created successfully", "work_experience_id": str(work_experience.id)}
 
 @router.put("/work-experience", status_code=status.HTTP_200_OK)
-async def update_work_experience(service: PortfolioServiceDep, data: WorkExperienceUpdate):
+async def update_work_experience(
+    service: PortfolioServiceDep,
+    data: WorkExperienceUpdate,
+    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin"], permission_name="edit_work_experience"))]
+):
     try:
         updated_work_experience = await service.update_work_experience(data)
         if not updated_work_experience:
@@ -209,7 +237,11 @@ async def update_work_experience(service: PortfolioServiceDep, data: WorkExperie
         raise HTTPException(status_code=404, detail=str(e))
     
 @router.delete("/work-experience/{work_experience_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_work_experience(service: PortfolioServiceDep, work_experience_id: UUID):
+async def delete_work_experience(
+    service: PortfolioServiceDep,
+    work_experience_id: UUID,
+    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin"], permission_name="edit_work_experience"))]
+):
     try:
         await service.delete_work_experience(work_experience_id)
     except ValueError as e:
@@ -225,12 +257,17 @@ async def delete_work_experience(service: PortfolioServiceDep, work_experience_i
 
 # Skill Category Routes
 @router.get("/skill-categories", response_model=list[SkillCategoryRead])
-async def get_skill_categories(service: PortfolioServiceDep):
+async def get_skill_categories(
+    service: PortfolioServiceDep):
     categories = await service.get_skill_categories()
     return categories
 
 @router.post("/skill-categories", status_code=status.HTTP_201_CREATED)
-async def create_skill_category(service: PortfolioServiceDep, data: SkillCategoryCreate):
+async def create_skill_category(
+    service: PortfolioServiceDep, 
+    data: SkillCategoryCreate,
+    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin"], permission_name="edit_skill_categories"))]
+):
     try:
         category = await service.create_skill_category(data)
         return {"message": "Skill category created successfully", "category_id": str(category.id)}
@@ -238,7 +275,11 @@ async def create_skill_category(service: PortfolioServiceDep, data: SkillCategor
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.put("/skill-categories", status_code=status.HTTP_200_OK)
-async def update_skill_category(service: PortfolioServiceDep, data: SkillCategoryUpdate):
+async def update_skill_category(
+    service: PortfolioServiceDep, 
+    data: SkillCategoryUpdate,
+    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin"], permission_name="edit_skill_categories"))]
+):
     try:
         await service.update_skill_category(data)
         return {"message": "Skill category updated successfully"}
@@ -246,7 +287,11 @@ async def update_skill_category(service: PortfolioServiceDep, data: SkillCategor
         raise HTTPException(status_code=404, detail=str(e))
 
 @router.delete("/skill-categories/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_skill_category(service: PortfolioServiceDep, category_id: UUID):
+async def delete_skill_category(
+    service: PortfolioServiceDep, 
+    category_id: UUID,
+    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin"], permission_name="edit_skill_categories"))]
+):
     try:
         await service.delete_skill_category(category_id)
     except ValueError as e:
@@ -266,7 +311,8 @@ async def get_skills(service: PortfolioServiceDep):
 @router.post("/skills", status_code=status.HTTP_201_CREATED)
 async def create_skill(
     service: PortfolioServiceDep,
-    form_data: Annotated[tuple[SkillCreateForm, Optional[UploadFile]], Depends(SkillCreateForm.as_form)]
+    form_data: Annotated[tuple[SkillCreateForm, Optional[UploadFile]], Depends(SkillCreateForm.as_form)],
+    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin"], permission_name="edit_skills"))]
 ):
     data, skill_image = form_data
     create_data = SkillCreate(**data.model_dump() if hasattr(data, "model_dump") else data.__dict__)
@@ -278,7 +324,8 @@ async def create_skill(
 @router.put("/skills", status_code=status.HTTP_200_OK, response_model=SkillRead)
 async def update_skill(
     service: PortfolioServiceDep,
-    form_data: Annotated[tuple[SkillUpdateForm, Optional[UploadFile]], Depends(SkillUpdateForm.as_form)]
+    form_data: Annotated[tuple[SkillUpdateForm, Optional[UploadFile]], Depends(SkillUpdateForm.as_form)],
+    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin"], permission_name="edit_skills"))]
 ):
     data, skill_image = form_data
     update_data = SkillUpdate(**data.model_dump() if hasattr(data, "model_dump") else data.__dict__)
@@ -289,7 +336,11 @@ async def update_skill(
         raise HTTPException(status_code=404, detail=str(e))
 
 @router.delete("/skills/{skill_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_skill(service: PortfolioServiceDep, skill_id: UUID):
+async def delete_skill(
+    service: PortfolioServiceDep,
+    skill_id: UUID,
+    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin"], permission_name="edit_skills"))]
+):
     try:
         await service.delete_skill(skill_id)
     except ValueError as e:
@@ -297,7 +348,11 @@ async def delete_skill(service: PortfolioServiceDep, skill_id: UUID):
     return {"message": "Skill deleted successfully"}
 
 @router.get("/skills/{skill_id}/image")
-async def get_skill_image(service: PortfolioServiceDep, skill_id: UUID):
+async def get_skill_image(
+    service: PortfolioServiceDep, 
+    skill_id: UUID,
+    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin"], permission_name="edit_skills"))]
+):
     skill = await service.get_skill_by_id(skill_id)
     if not skill or not skill.image_id:
         raise HTTPException(status_code=404, detail="No image found for this skill")

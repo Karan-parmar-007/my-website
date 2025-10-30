@@ -2,14 +2,15 @@ from motor.motor_asyncio import AsyncIOMotorDatabase, AsyncIOMotorGridFSBucket
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 from uuid import UUID
-from typing import List, Optional
+from typing import List, Optional, Any, cast
 from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import selectinload, QueryableAttribute
 
 from app.api.routes.v1.user.models import UserRole, Permission, Users, RolePermission
-from app.api.routes.v1.user.schemas import  UserRoleRead, UserRoleCreate, UserRoleUpdate
+from app.api.routes.v1.user.schemas import  UserAdminUpdate, UserBasicUpdate, UserRoleRead, UserRoleCreate, UserRoleUpdate
 from app.api.routes.v1.user.schemas import PermissionRead, PermissionCreate, PermissionUpdate, RolePermissionRead, RolePermissionCreate
-from app.api.routes.v1.user.schemas import UserRead, UserCreate, UserUpdate, UserLogin
+from app.api.routes.v1.user.schemas import UserRead, UserCreate, UserUpdate, UserLogin, UserDetailRead
 from app.utils.security import hash_password, issue_access_token, verify_password
 
 class UserService:
@@ -134,6 +135,75 @@ class UserService:
         for key, value in data.items():
             setattr(user, key, value)
 
+        self.session.add(user)
+        await self.session.commit()
+        await self.session.refresh(user)
+        return UserRead.model_validate(user).model_dump()
+    
+    async def update_user_basic(self, user_id: UUID, user_update: "UserBasicUpdate") -> Optional[dict]:
+        """Update only name and email for regular users"""
+        query = select(Users).where(Users.id == user_id)
+        result = await self.session.execute(query)
+        user = result.scalar_one_or_none()
+        if not user:
+            return None
+
+        # Only allow preferred_name and email updates
+        data = user_update.model_dump(exclude_unset=True)
+        for key, value in data.items():
+            if key in ["preferred_name", "email"]:
+                setattr(user, key, value)
+
+        self.session.add(user)
+        await self.session.commit()
+        await self.session.refresh(user)
+        return UserRead.model_validate(user).model_dump()
+
+    async def update_user_admin(self, user_id: UUID, user_update: "UserAdminUpdate") -> Optional[dict]:
+        """Admin update - can change all fields including role and verification status"""
+        query = select(Users).where(Users.id == user_id)
+        result = await self.session.execute(query)
+        user = result.scalar_one_or_none()
+        if not user:
+            return None
+
+        data = user_update.model_dump(exclude_unset=True)
+        
+        # Handle password separately
+        if "password" in data:
+            user.password_hash = hash_password(data.pop("password"))
+
+        # Verify role_id exists if provided
+        if "role_id" in data:
+            role_query = select(UserRole).where(UserRole.id == data["role_id"])
+            role_result = await self.session.execute(role_query)
+            if not role_result.scalar_one_or_none():
+                return None  # Invalid role_id
+
+        for key, value in data.items():
+            setattr(user, key, value)
+
+        self.session.add(user)
+        await self.session.commit()
+        await self.session.refresh(user)
+        return UserRead.model_validate(user).model_dump()
+
+    async def update_user_role_only(self, user_id: UUID, role_id: UUID) -> Optional[dict]:
+        """Update only the user's role"""
+        # Verify role exists
+        role_query = select(UserRole).where(UserRole.id == role_id)
+        role_result = await self.session.execute(role_query)
+        if not role_result.scalar_one_or_none():
+            return None  # Invalid role_id
+
+        # Get and update user
+        query = select(Users).where(Users.id == user_id)
+        result = await self.session.execute(query)
+        user = result.scalar_one_or_none()
+        if not user:
+            return None
+
+        user.role_id = role_id
         self.session.add(user)
         await self.session.commit()
         await self.session.refresh(user)
@@ -341,6 +411,64 @@ class UserService:
         await self.session.delete(role_permission)
         await self.session.commit()
         return True
+
+    async def get_all_users(self) -> List[dict]:
+        """
+        Return list of all users with full details (without password_hash).
+        """
+        query = select(Users).options(selectinload(cast(QueryableAttribute[Any], Users.role))) #type: ignore
+        result = await self.session.execute(query)
+        users = result.scalars().all()
+        return [UserDetailRead.model_validate(u).model_dump() for u in users]
+
+    async def user_has_role(self, user_id: str, required_role: str) -> bool:
+        """
+        Returns True if the user with user_id has the required_role.
+        """
+        from uuid import UUID
+        try:
+            user_uuid = UUID(user_id)
+        except Exception:
+            return False
+
+        # Fetch user and role using session
+        q_user = select(Users).where(Users.id == user_uuid)
+        res = await self.session.execute(q_user)
+        user = res.scalar_one_or_none()
+        if not user or getattr(user, "role_id", None) is None:
+            return False
+
+        q_role = select(UserRole).where(UserRole.id == user.role_id)
+        res = await self.session.execute(q_role)
+        role = res.scalar_one_or_none()
+        if not role:
+            return False
+
+        return getattr(role, "name", None) == required_role
+
+    async def user_has_any_role(self, user_id: str, required_roles: list[str]) -> bool:
+        """
+        Returns True if the user with user_id has any of the required_roles.
+        """
+        from uuid import UUID
+        try:
+            user_uuid = UUID(user_id)
+        except Exception:
+            return False
+
+        q_user = select(Users).where(Users.id == user_uuid)
+        res = await self.session.execute(q_user)
+        user = res.scalar_one_or_none()
+        if not user or getattr(user, "role_id", None) is None:
+            return False
+
+        q_role = select(UserRole).where(UserRole.id == user.role_id)
+        res = await self.session.execute(q_role)
+        role = res.scalar_one_or_none()
+        if not role:
+            return False
+
+        return getattr(role, "name", None) in required_roles
 
 
 
