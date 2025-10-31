@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from uuid import UUID
 from datetime import datetime
 from fastapi import UploadFile, Form, File
@@ -64,6 +64,10 @@ class RolePermissionCreate(BaseModel):
     role_id: UUID
     permission_id: UUID
 
+class RolePermissionDeleteRequest(BaseModel):
+    role_id: UUID
+    permission_id: UUID
+
 
 # ----------------------------------------
 # 🔹 User
@@ -81,6 +85,14 @@ class UserCreate(BaseModel):
     preferred_name: str
     email: EmailStr
     password: str
+
+# New: admin create user schema (used by admin API)
+class AdminCreateUser(BaseModel):
+    preferred_name: str
+    email: EmailStr
+    password: str
+    role_id: Optional[UUID] = None
+    email_verified: Optional[bool] = False
 
 class UserCreateResponse(BaseModel):
     status: str
@@ -107,9 +119,6 @@ class UserAdminUpdate(BaseModel):
     role_id: Optional[UUID] = None
     email_verified: Optional[bool] = None
 
-class UserRoleUpdateRequest(BaseModel):
-    """Update only user role"""
-    role_id: UUID
 
 # New: full user detail read schema (do NOT expose password_hash)
 class UserDetailRead(BaseModel):
@@ -158,6 +167,14 @@ class RoleValidatorRequest(BaseModel):
 
 class RoleValidatorResponse(BaseModel):
     has_role: bool
+
+class PermissionWithHave(BaseModel):
+    permission: Dict[str, Any]  # Assuming Permission model has fields like id, name, etc.
+    have: bool
+
+class RolePermissionsResponse(BaseModel):
+    role_info: Dict[str, Any]  # Assuming UserRole model has fields like id, name, etc.
+    permissions: List[PermissionWithHave]
 
 # Resolve forward references
 UserRead.model_rebuild()

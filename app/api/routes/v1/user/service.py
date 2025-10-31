@@ -2,7 +2,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase, AsyncIOMotorGridFSBucket
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 from uuid import UUID
-from typing import List, Optional, Any, cast
+from typing import Dict, Any, List, Optional, Any, cast
 from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload, QueryableAttribute
@@ -10,13 +10,17 @@ from sqlalchemy.orm import selectinload, QueryableAttribute
 from app.api.routes.v1.user.models import UserRole, Permission, Users, RolePermission
 from app.api.routes.v1.user.schemas import  UserAdminUpdate, UserBasicUpdate, UserRoleRead, UserRoleCreate, UserRoleUpdate
 from app.api.routes.v1.user.schemas import PermissionRead, PermissionCreate, PermissionUpdate, RolePermissionRead, RolePermissionCreate
-from app.api.routes.v1.user.schemas import UserRead, UserCreate, UserUpdate, UserLogin, UserDetailRead
+from app.api.routes.v1.user.schemas import UserRead, UserCreate, UserUpdate, UserLogin, UserDetailRead, AdminCreateUser
 from app.utils.security import hash_password, issue_access_token, verify_password
+
+# New import for repository
+from app.api.routes.v1.user.repository import UserRepository
 
 class UserService:
     def __init__(self, session: AsyncSession, mongo: AsyncIOMotorDatabase):
         self.session = session
         self.mongo = mongo
+        self._repo = UserRepository(session)
 
 
     # ----------------------------------------
@@ -379,12 +383,6 @@ class UserService:
             return None
         return RolePermissionRead.model_validate(role_permission).model_dump()
     
-    async def get_role_permissions_by_role_id(self, role_id: UUID) -> List[dict]:
-        query = select(RolePermission).where(RolePermission.role_id == role_id)
-        result = await self.session.execute(query)
-        role_permissions = result.scalars().all()
-        return [RolePermissionRead.model_validate(rp).model_dump() for rp in role_permissions]
-    
     async def get_role_permissions_by_permission_id(self, permission_id: UUID) -> List[dict]:
         query = select(RolePermission).where(RolePermission.permission_id == permission_id)
         result = await self.session.execute(query)
@@ -412,14 +410,13 @@ class UserService:
         await self.session.commit()
         return True
 
-    async def get_all_users(self) -> List[dict]:
+    async def get_all_users(self, limit: int = 20, offset: int = 0) -> List[dict]:
         """
-        Return list of all users with full details (without password_hash).
+        Return list of users paginated with full details (without password_hash).
         """
-        query = select(Users).options(selectinload(cast(QueryableAttribute[Any], Users.role))) #type: ignore
-        result = await self.session.execute(query)
-        users = result.scalars().all()
-        return [UserDetailRead.model_validate(u).model_dump() for u in users]
+        rows = await self._repo.fetch_users(limit=limit, offset=offset)
+        # convert to schema dicts
+        return [UserDetailRead.model_validate(u).model_dump() for u in rows]
 
     async def user_has_role(self, user_id: str, required_role: str) -> bool:
         """
@@ -470,10 +467,101 @@ class UserService:
 
         return getattr(role, "name", None) in required_roles
 
+    async def get_role_permissions_by_role_id(self, role_id: UUID) -> Dict[str, Any]:
+        # Fetch the role
+        role = await self.session.get(UserRole, role_id)
+        if not role:
+            raise ValueError("Role not found")
+        
+        # Fetch all permissions
+        all_permissions_result = await self.session.execute(select(Permission))
+        all_permissions = all_permissions_result.scalars().all()
+        
+        # Fetch permissions assigned to this role
+        role_permissions_result = await self.session.execute(
+            select(RolePermission).where(RolePermission.role_id == role_id)
+        )
+        role_permission_ids = {rp.permission_id for rp in role_permissions_result.scalars().all()}
+        
+        # Build the permissions list
+        permissions = []
+        for perm in all_permissions:
+            have = perm.id in role_permission_ids
+            permissions.append({
+                "permission": perm.model_dump() if hasattr(perm, "model_dump") else perm.__dict__,
+                "have": have
+            })
+        
+        return {
+            "role_info": role.model_dump() if hasattr(role, "model_dump") else role.__dict__,
+            "permissions": permissions
+        }
 
+    async def create_user_by_admin(self, admin_user: AdminCreateUser) -> dict:
+        """
+        Create a user from an admin context.
+        - Hashes the password and stores user.
+        - Does NOT issue tokens or set cookies.
+        - If role_id provided, verifies it exists; otherwise assigns default 'user' role.
+        Returns created user as UserDetailRead dict or raises/returns error dict.
+        """
+        try:
+            # check duplicate email
+            q = select(Users).where(Users.email == admin_user.email)
+            res = await self.session.execute(q)
+            existing = res.scalar_one_or_none()
+            if existing:
+                return {"status": "error", "message": "User with this email already exists"}
 
+            # determine role
+            role_obj = None
+            if admin_user.role_id:
+                q_role = select(UserRole).where(UserRole.id == admin_user.role_id)
+                res_role = await self.session.execute(q_role)
+                role_obj = res_role.scalar_one_or_none()
+                if not role_obj:
+                    return {"status": "error", "message": "Provided role_id does not exist"}
+            else:
+                role_obj = await self._get_or_create_default_role()
 
+            user = Users(
+                preferred_name=admin_user.preferred_name,
+                email=admin_user.email,
+                password_hash=hash_password(admin_user.password),
+                role_id=role_obj.id,
+                email_verified=bool(admin_user.email_verified),
+            )
+            self.session.add(user)
+            await self.session.commit()
+            await self.session.refresh(user)
 
+            return {"status": "success", "user": UserDetailRead.model_validate(user).model_dump()}
+        except IntegrityError:
+            await self.session.rollback()
+            return {"status": "error", "message": "Constraint violation creating user"}
+        except Exception as e:
+            await self.session.rollback()
+            return {"status": "error", "message": f"Failed to create user: {e}"}
+
+    async def fetch_user_suggestions(self, query: str, limit: int = 5) -> List[str]:
+        """
+        Return suggestions for preferred_name/email matching query.
+        Delegates to repository which uses ilike and .limit().
+        """
+        if not query or not query.strip():
+            return []
+        suggestions = await self._repo.fetch_user_suggestions(query=query.strip(), limit=limit)
+        return suggestions
+
+    async def search_users(self, query: str, limit: int = 20, offset: int = 0) -> List[dict]:
+        """
+        Search users by preferred_name or email and return full user details with pagination.
+        Delegates to repository which uses ilike, .limit() and .offset().
+        """
+        if not query or not query.strip():
+            return []
+        rows = await self._repo.search_users(query=query.strip(), limit=limit, offset=offset)
+        return [UserDetailRead.model_validate(u).model_dump() for u in rows]
 
 
 

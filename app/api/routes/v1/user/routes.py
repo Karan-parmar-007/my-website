@@ -8,11 +8,13 @@ from fastapi import (
     status,
     UploadFile,
     Response,
-    Depends
+    Depends,
+    Query,
 )
 
 from app.api.dependencies import UserServiceDep
 from app.api.routes.v1.user.schemas import (
+    RolePermissionDeleteRequest,
     UserRoleRead,
     UserRoleCreate,
     UserRoleUpdate,
@@ -29,10 +31,11 @@ from app.api.routes.v1.user.schemas import (
     UserLogin,
     UserBasicUpdate,
     UserAdminUpdate,
-    UserRoleUpdateRequest,
-    UserDetailRead,  # added
+    UserDetailRead,
     RoleValidatorRequest,
     RoleValidatorResponse,
+    RolePermissionsResponse,
+    AdminCreateUser,   # <--- added
 )
 
 from app.api.routes.v1.user.models import (
@@ -181,33 +184,55 @@ async def update_user_admin(
         )
     return updated
 
-@router.patch("/users/{user_id}/role", response_model=UserRead)
-async def update_user_role_only(
-    user_id: UUID,
-    data: UserRoleUpdateRequest,
-    service: UserServiceDep,
-    user: Dict[str, Any] = Depends(require_auth),
-    # user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin", "admin"], permission_name="edit_user_role"))],
-):
-    """Update only user role - requires admin privileges"""
-    updated = await service.update_user_role_only(user_id, data.role_id)
-    if not updated:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found or invalid role_id"
-        )
-    return updated
 
 @router.get("/users", response_model=list[UserDetailRead])
 async def fetch_all_users(
     service: UserServiceDep,
     user: Dict[str, Any] = Depends(require_auth),
+    page: int = Query(1, ge=1, description="Page number (starts at 1)"),
+    size: int = Query(20, ge=1, le=100, description="Page size (max 100)"),
     # user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin", "admin"], permission_name="view_users"))],
 ):
     """
     Admin endpoint - fetch all users with full details (password_hash is not returned).
+    Supports simple page/size pagination.
     """
-    users = await service.get_all_users()
+    offset = (page - 1) * size
+    users = await service.get_all_users(limit=size, offset=offset)
+    return users
+
+# New suggestion route
+@router.get("/suggestion", response_model=list[str])
+async def user_suggestions(
+    service: UserServiceDep,
+    user: Dict[str, Any] = Depends(require_auth),
+    q: str = Query(..., min_length=1, description="Search query for name or email"),
+    limit: int = Query(5, ge=1, le=10, description="Max suggestions to return (1-10)"),
+):
+    """
+    Return a small list of user suggestions (preferred_name or email) matching q.
+    - DB has indexes on email and preferred_name for faster lookups.
+    - Limits results on DB and on response (5-10).
+    """
+    suggestions = await service.fetch_user_suggestions(query=q, limit=limit)
+    return suggestions
+
+# New search route
+@router.get("/search", response_model=list[UserDetailRead])
+async def search_users(
+    service: UserServiceDep,
+    user: Dict[str, Any] = Depends(require_auth),
+    q: str = Query(..., min_length=1, description="Search query for name or email"),
+    page: int = Query(1, ge=1, description="Page number (starts at 1)"),
+    size: int = Query(20, ge=1, le=100, description="Page size (max 100)"),
+):
+    """
+    Search users by preferred_name or email and return full user details with pagination.
+    - DB has indexes on email and preferred_name for faster lookups.
+    - Returns full UserDetailRead objects (with role info).
+    """
+    offset = (page - 1) * size
+    users = await service.search_users(query=q, limit=size, offset=offset)
     return users
 
 # ----------------------------------------
@@ -407,14 +432,13 @@ async def list_role_permissions(
         )
     return role_permissions
 
-@router.delete("/role-permissions/{role_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/role-permissions", status_code=status.HTTP_204_NO_CONTENT)
 async def remove_permission_from_role(
-    role_id: UUID,
-    permission_id: UUID,
+    data: RolePermissionDeleteRequest,  # Take both from body
     service: UserServiceDep,
     user: Dict[str, Any] = Depends(require_auth),
 ):
-    result = await service.delete_role_permission(role_id, permission_id)
+    result = await service.delete_role_permission(data.role_id, data.permission_id)
     if not result:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -438,6 +462,68 @@ async def role_validator(
         return {"has_role": False}
     has_role = await service.user_has_any_role(user_id, data.required_roles)
     return {"has_role": has_role}
+
+@router.get("/roles/{role_id}/permissions", response_model=RolePermissionsResponse)
+async def get_role_permissions(
+    role_id: UUID,
+    service: UserServiceDep,
+    user: Dict[str, Any] = Depends(require_auth),
+    # user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin"], permission_name="view_roles"))]
+):
+    try:
+        return await service.get_role_permissions_by_role_id(role_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+@router.post("/admin/users", response_model=UserDetailRead, status_code=status.HTTP_201_CREATED)
+async def create_user_by_admin(
+    data: AdminCreateUser,
+    service: UserServiceDep,
+    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin", "admin"], permission_name="add_user"))],
+):
+    """
+    Admin endpoint to create a normal user.
+    - Hashes and stores the password (no JWT / no cookie issued).
+    - If role_id provided, verifies it exists; otherwise assigns default 'user' role.
+    """
+    result = await service.create_user_by_admin(data)
+    if isinstance(result, dict) and result.get("status") == "error":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result.get("message", "Error creating user"))
+    # service returns {"status":"success","user": {...}}
+    return result["user"]
+
+# New: allow user to delete their own account
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_current_user(
+    service: UserServiceDep,
+    user_data: Dict[str, Any] = Depends(require_auth),
+):
+    """
+    Delete the currently authenticated user's account.
+    """
+    user_id = user_data.get("user_id") or user_data.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token: user_id missing")
+    from uuid import UUID as _UUID
+    deleted = await service.delete_user(_UUID(user_id))
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+# New: admin deletes a user by id
+@router.delete("/admin/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_user_by_admin(
+    user_id: UUID,
+    service: UserServiceDep,
+    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin", "admin"], permission_name="delete_user"))],
+):
+    """
+    Admin endpoint to delete a user by id.
+    """
+    deleted = await service.delete_user(user_id)
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 

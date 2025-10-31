@@ -69,11 +69,11 @@ class Users(SQLModel, table=True):
 
     preferred_name: str = Field(
         max_length=50,
-        sa_column=Column(postgresql.VARCHAR(50), nullable=False)
+        sa_column=Column(postgresql.VARCHAR(50), nullable=False, index=True)  # added index
     )
 
     email: EmailStr = Field(
-        sa_column=Column(postgresql.VARCHAR(255), nullable=False, unique=True)
+        sa_column=Column(postgresql.VARCHAR(255), nullable=False, unique=True, index=True)  # added index
     )
 
     password_hash: str = Field(
