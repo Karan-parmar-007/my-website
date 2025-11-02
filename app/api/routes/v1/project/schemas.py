@@ -1,5 +1,6 @@
-from pydantic import BaseModel
-from typing import Optional
+import json
+from pydantic import BaseModel, field_validator
+from typing import Optional, Union
 from uuid import UUID
 from datetime import datetime
 from fastapi import UploadFile, Form, File
@@ -42,6 +43,9 @@ class ProjectRead(BaseModel):
     docker_image_link_backend: Optional[str] = None
     docker_image_link_frontend: Optional[str] = None
     contributors: Optional[dict] = {}
+    is_interesting_project: bool
+    is_live: bool
+    access_level: Optional["AccessLevelRead"] = None
     project_image_base_six_four: Optional[str] = None
 
     class Config:
@@ -49,12 +53,9 @@ class ProjectRead(BaseModel):
 
 class ProjectAdminRead(ProjectRead):
     access_level_id: UUID
-    is_interesting_project: bool
-    is_live: bool
     created_at: datetime
     updated_at: datetime
     ngrok_url: Optional[str] = None
-    access_level: Optional["AccessLevelRead"] = None
 
 class ProjectCreate(BaseModel):
     name: str
@@ -86,9 +87,21 @@ class ProjectCreate(BaseModel):
         is_live: Optional[bool] = Form(default=False),
         docker_image_link_backend: Optional[str] = Form(default=None),
         docker_image_link_frontend: Optional[str] = Form(default=None),
-        contributors: Optional[dict] = Form(default={}),
-        project_image: Optional[UploadFile] = File(default=None)
+        contributors: Optional[str] = Form(default="{}"),
+        project_image: Union[UploadFile, str, None] = File(None),
     ) -> tuple["ProjectCreate", Optional[UploadFile]]:
+        try:
+            parsed_contributors = json.loads(contributors) if contributors else {}
+        except json.JSONDecodeError:
+            parsed_contributors = {}
+        
+        if isinstance(project_image, str):
+            project_image = None
+
+        if project_image and hasattr(project_image, 'filename'):
+            if project_image.filename == '':
+                project_image = None
+            
         return cls(
             name=name,
             short_description=short_description,
@@ -102,11 +115,10 @@ class ProjectCreate(BaseModel):
             is_live=is_live,
             docker_image_link_backend=docker_image_link_backend,
             docker_image_link_frontend=docker_image_link_frontend,
-            contributors=contributors
+            contributors=parsed_contributors
         ), project_image
 
 class ProjectUpdate(BaseModel):
-    id: UUID
     name: Optional[str] = None
     short_description: Optional[str] = None
     long_description: Optional[str] = None
@@ -124,7 +136,6 @@ class ProjectUpdate(BaseModel):
     @classmethod
     def as_form(
         cls,
-        id: UUID = Form(...),
         name: Optional[str] = Form(default=None),
         short_description: Optional[str] = Form(default=None),
         long_description: Optional[str] = Form(default=None),
@@ -137,11 +148,23 @@ class ProjectUpdate(BaseModel):
         is_live: Optional[bool] = Form(default=None),
         docker_image_link_backend: Optional[str] = Form(default=None),
         docker_image_link_frontend: Optional[str] = Form(default=None),
-        contributors: Optional[dict] = Form(default=None),
-        project_image: Optional[UploadFile] = File(default=None)
+        contributors: Optional[str] = Form(default=None),
+        project_image: Union[UploadFile, str, None] = File(None),
     ) -> tuple["ProjectUpdate", Optional[UploadFile]]:
+        try:
+            parsed_contributors = json.loads(contributors) if contributors else None
+        except json.JSONDecodeError:
+            parsed_contributors = None
+        
+        # Handle empty string from Swagger UI
+        if isinstance(project_image, str):
+            project_image = None
+
+        if project_image and hasattr(project_image, 'filename'):
+            if project_image.filename == '':
+                project_image = None
+            
         return cls(
-            id=id,
             name=name,
             short_description=short_description,
             long_description=long_description,
@@ -154,7 +177,7 @@ class ProjectUpdate(BaseModel):
             is_live=is_live,
             docker_image_link_backend=docker_image_link_backend,
             docker_image_link_frontend=docker_image_link_frontend,
-            contributors=contributors
+            contributors=parsed_contributors
         ), project_image
 
 

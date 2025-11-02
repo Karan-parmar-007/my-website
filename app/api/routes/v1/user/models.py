@@ -98,3 +98,8 @@ class Users(SQLModel, table=True):
         sa_column=Column(postgresql.TIMESTAMP(timezone=True), nullable=False, default=datetime.now, onupdate=datetime.now)
     )
 
+    memberships: List["ProjectMembership"] = Relationship(back_populates="user")
+
+# Import at the end to avoid circular import
+from app.common.models.user_project_link import ProjectMembership
+
