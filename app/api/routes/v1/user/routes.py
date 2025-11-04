@@ -1,16 +1,17 @@
-from typing import Any, Dict, Optional, Annotated
+from typing import Any, Dict, Optional, Annotated, TYPE_CHECKING
 from fastapi import (
     APIRouter,
-    File,
-    Form,
     HTTPException,
     Request,
     status,
-    UploadFile,
     Response,
     Depends,
     Query,
 )
+
+if TYPE_CHECKING:
+    from app.api.dependencies import UserServiceDep
+    from app.api.routes.v1.user.schemas import UserCreate, UserLogin
 
 from app.api.dependencies import UserServiceDep
 from app.api.routes.v1.user.schemas import (
@@ -25,7 +26,6 @@ from app.api.routes.v1.user.schemas import (
     RolePermissionCreate,
     UserRead,
     UserCreate,
-    UserUpdate,
     UserCreateResponse,
     UserLoginResponse,
     UserLogin,
@@ -38,12 +38,7 @@ from app.api.routes.v1.user.schemas import (
     AdminCreateUser,   # <--- added
 )
 
-from app.api.routes.v1.user.models import (
-    Users,
-    UserRole,
-    Permission,
-    RolePermission,
-)
+
 
 from app.common.dependencies.jwt_auth import (
     require_auth,
