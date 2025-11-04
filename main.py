@@ -14,10 +14,18 @@ app = FastAPI(title="Karan Parmar", lifespan=lifespan)
 
 app.include_router(api_router)
 
+# Configure CORS with correct origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173"],  # Your frontend URL
-    allow_credentials=True,  # This is crucial for cookies
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:4173",
+        "http://localhost:5173",
+        "http://168.220.236.230",      # Fixed: removed .com
+        "https://karanparmar.in",
+        "https://www.karanparmar.in"
+    ],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
