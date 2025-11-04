@@ -9,7 +9,6 @@ from app.api.routes.v1.user.models import UserRole, Permission, RolePermission, 
 from app.api.routes.v1.portfolio.models import ProfileInfo
 from app.utils.security import hash_password
 
-
 async def bootstrap_data():
     """Bootstrap initial data: roles, permissions, super admin user, and portfolio info"""
     
