@@ -28,4 +28,15 @@ class ProjectMembership(SQLModel, table=True):
 
     user: "Users" = Relationship(back_populates="memberships")
     project: "Projects" = Relationship(back_populates="members")
+    
+# Ensure related model modules are imported so their classes are registered with SQLAlchemy
+# This avoids "failed to locate a name ('Projects')" mapper errors at runtime.
+try:
+    # import modules (not names) to avoid circular import attribute access
+    import app.api.routes.v1.user.models  # noqa: F401
+    import app.api.routes.v1.project.models  # noqa: F401
+except Exception:
+    # If import fails during certain test/import ordering, ignore so the app can continue startup
+    # The modules should be importable in normal runtime.
+    pass
 
