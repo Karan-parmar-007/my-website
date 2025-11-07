@@ -44,7 +44,7 @@ router = APIRouter()
 # 🔹 Profile 
 # ----------------------------------------
 
-@router.get("/profile-info", response_model=ProfileInfoRead)
+@router.get("/profile-info")
 async def get_full_profile(service: PortfolioServiceDep):
     profile = await service.get_profile_info()
     if not profile:
@@ -79,7 +79,7 @@ async def get_full_profile(service: PortfolioServiceDep):
     result = profile.model_dump() if hasattr(profile, "dict") else profile.__dict__
     result["profile_image_base64"] = image_data
     result["resume_file_base64"] = resume_data
-    return result
+    return ""
 
 @router.get("/profile-image")
 async def get_profile_image(service: PortfolioServiceDep):
