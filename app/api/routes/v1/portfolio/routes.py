@@ -30,7 +30,7 @@ from app.api.routes.v1.portfolio.schemas import (
     SkillCategoryRead,
     SkillCategoryUpdate
 )
-from app.common.dependencies.role_and_permission_check_auth import require_roles_and_permission
+from app.common.dependencies.role_and_permission_check_auth import require_permission
 
 from bson import ObjectId
 import base64
@@ -98,7 +98,7 @@ async def get_profile_image(service: PortfolioServiceDep):
 async def create_portfolio(
     service: PortfolioServiceDep,
     form_data: Annotated[tuple[ProfileInfoCreateForm, Optional[UploadFile], Optional[UploadFile]], Depends(ProfileInfoCreateForm.as_form)],
-    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin"], permission_name="edit_portfolio"))]
+    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_portfolio"))]
 ):
     data, profile_image, resume_file = form_data
     profile_exist = await service.get_profile_info()
@@ -113,7 +113,7 @@ async def create_portfolio(
 async def update_portfolio(
     service: PortfolioServiceDep,
     form_data: Annotated[tuple[ProfileInfoUpdateForm, Optional[UploadFile], Optional[UploadFile]], Depends(ProfileInfoUpdateForm.as_form)],
-    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin"], permission_name="edit_portfolio"))]
+    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_portfolio"))]
 ):
     data, profile_image, resume_file = form_data
     profile = await service.get_profile_info()
@@ -145,7 +145,7 @@ async def update_portfolio(
 @router.delete("/profile-info", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_portfolio(
     service: PortfolioServiceDep,
-    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin"], permission_name="edit_portfolio"))]    
+    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_portfolio"))]
 ):
     profile = await service.get_profile_info()
     if not profile:
@@ -169,7 +169,7 @@ async def get_education(service: PortfolioServiceDep):
 async def create_education(
     service: PortfolioServiceDep,
     data: EducationCreate,
-    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin"], permission_name="edit_education"))]
+    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_education"))]
 ):
     education = await service.create_education(data)
     return {"message": "Education record created successfully", "education_id": str(education.id)}
@@ -178,7 +178,7 @@ async def create_education(
 async def update_education(
     service: PortfolioServiceDep,
     data: EducationUpdate,
-    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin"], permission_name="edit_education"))]    
+    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_education"))]
 ):
     try:
         updated_education = await service.update_education(data)
@@ -192,7 +192,7 @@ async def update_education(
 async def delete_education(
     service: PortfolioServiceDep,
     education_id: UUID,
-    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin"], permission_name="edit_education"))]
+    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_education"))]
 ):
     try:
         await service.delete_education(education_id)
@@ -217,7 +217,7 @@ async def get_work_experience(service: PortfolioServiceDep):
 async def create_work_experience(
     service: PortfolioServiceDep, 
     data: WorkExperienceCreate,
-    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin"], permission_name="edit_work_experience"))]
+    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_work_experience"))]
 ):
     work_experience = await service.create_work_experience(data)
     return {"message": "Work experience record created successfully", "work_experience_id": str(work_experience.id)}
@@ -226,7 +226,7 @@ async def create_work_experience(
 async def update_work_experience(
     service: PortfolioServiceDep,
     data: WorkExperienceUpdate,
-    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin"], permission_name="edit_work_experience"))]
+    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_work_experience"))]
 ):
     try:
         updated_work_experience = await service.update_work_experience(data)
@@ -240,7 +240,7 @@ async def update_work_experience(
 async def delete_work_experience(
     service: PortfolioServiceDep,
     work_experience_id: UUID,
-    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin"], permission_name="edit_work_experience"))]
+    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_work_experience"))]
 ):
     try:
         await service.delete_work_experience(work_experience_id)
@@ -266,7 +266,7 @@ async def get_skill_categories(
 async def create_skill_category(
     service: PortfolioServiceDep, 
     data: SkillCategoryCreate,
-    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin"], permission_name="edit_skill_categories"))]
+    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_skill_categories"))]
 ):
     try:
         category = await service.create_skill_category(data)
@@ -278,7 +278,7 @@ async def create_skill_category(
 async def update_skill_category(
     service: PortfolioServiceDep, 
     data: SkillCategoryUpdate,
-    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin"], permission_name="edit_skill_categories"))]
+    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_skill_categories"))]
 ):
     try:
         await service.update_skill_category(data)
@@ -290,7 +290,7 @@ async def update_skill_category(
 async def delete_skill_category(
     service: PortfolioServiceDep, 
     category_id: UUID,
-    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin"], permission_name="edit_skill_categories"))]
+    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_skill_categories"))]
 ):
     try:
         await service.delete_skill_category(category_id)
@@ -312,7 +312,7 @@ async def get_skills(service: PortfolioServiceDep):
 async def create_skill(
     service: PortfolioServiceDep,
     form_data: Annotated[tuple[SkillCreateForm, Optional[UploadFile]], Depends(SkillCreateForm.as_form)],
-    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin"], permission_name="edit_skills"))]
+    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_skills"))]
 ):
     data, skill_image = form_data
     create_data = SkillCreate(**data.model_dump() if hasattr(data, "model_dump") else data.__dict__)
@@ -325,7 +325,7 @@ async def create_skill(
 async def update_skill(
     service: PortfolioServiceDep,
     form_data: Annotated[tuple[SkillUpdateForm, Optional[UploadFile]], Depends(SkillUpdateForm.as_form)],
-    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin"], permission_name="edit_skills"))]
+    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_skills"))]
 ):
     data, skill_image = form_data
     update_data = SkillUpdate(**data.model_dump() if hasattr(data, "model_dump") else data.__dict__)
@@ -339,7 +339,7 @@ async def update_skill(
 async def delete_skill(
     service: PortfolioServiceDep,
     skill_id: UUID,
-    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin"], permission_name="edit_skills"))]
+    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_skills"))]
 ):
     try:
         await service.delete_skill(skill_id)
@@ -351,7 +351,7 @@ async def delete_skill(
 async def get_skill_image(
     service: PortfolioServiceDep, 
     skill_id: UUID,
-    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin"], permission_name="edit_skills"))]
+    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_skills"))]
 ):
     skill = await service.get_skill_by_id(skill_id)
     if not skill or not skill.image_id:

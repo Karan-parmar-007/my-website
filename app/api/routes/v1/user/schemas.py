@@ -105,7 +105,6 @@ class UserCreateResponse(BaseModel):
 class UserUpdate(BaseModel):
     preferred_name: Optional[str] = None
     email: Optional[EmailStr] = None
-    password: Optional[str] = None
 
 class UserBasicUpdate(BaseModel):
     """Basic user update - only name and email"""
@@ -113,7 +112,7 @@ class UserBasicUpdate(BaseModel):
     email: Optional[EmailStr] = None
 
 class UserAdminUpdate(BaseModel):
-    """Admin user update - all fields"""
+    """Admin user update - all fields except password"""
     preferred_name: Optional[str] = None
     email: Optional[EmailStr] = None
     role_id: Optional[UUID] = None
@@ -159,6 +158,42 @@ class ChangePasswordRequest(BaseModel):
     current_password: str
     new_password: str
     confirm_password: str
+
+
+# ----------------------------------------
+# 🔹 Password Reset Schemas
+# ----------------------------------------
+
+class AdminPasswordResetRequest(BaseModel):
+    """Admin/Super Admin resets any user's password"""
+    email: EmailStr
+    new_password: str
+
+
+class ForgotPasswordResponse(BaseModel):
+    """Response for forgot password initiation"""
+    status: str
+    message: str
+    email: str
+    # Token is set as HTTP-only cookie, not in response
+
+
+class VerifyOTPRequest(BaseModel):
+    """Verify OTP and reset password"""
+    otp: str
+    new_password: str
+    # No confirm_password - simplified
+
+
+class ResendOTPRequest(BaseModel):
+    """Request to resend OTP"""
+    email: EmailStr
+
+
+class PasswordResetResponse(BaseModel):
+    """Generic password reset response"""
+    status: str
+    message: str
 
 
 # New schema for role validator

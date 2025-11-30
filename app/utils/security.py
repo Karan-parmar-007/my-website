@@ -74,4 +74,66 @@ def verify_token(token: str, expected_type: Optional[str] = None) -> Dict[str, A
     return payload
 
 
+# ----------------------------------------
+# 🔹 OTP and Password Reset Utilities
+# ----------------------------------------
+
+def generate_otp() -> str:
+    """
+    Generate a 6-digit numeric OTP.
+    
+    Returns:
+        6-digit OTP as string
+    """
+    import random
+    return str(random.randint(100000, 999999))
+
+
+def hash_otp(otp: str) -> str:
+    """
+    Hash OTP using bcrypt for secure storage.
+    
+    Args:
+        otp: Plain text OTP
+    
+    Returns:
+        Hashed OTP
+    """
+    return pwd_context.hash(otp)
+
+
+def verify_otp(plain_otp: str, hashed_otp: str) -> bool:
+    """
+    Verify OTP against its hash.
+    
+    Args:
+        plain_otp: Plain text OTP from user
+        hashed_otp: Hashed OTP from database
+    
+    Returns:
+        True if OTP matches, False otherwise
+    """
+    return pwd_context.verify(plain_otp, hashed_otp)
+
+
+def create_password_reset_token(email: str) -> str:
+    """
+    Create a short-lived JWT token for password reset (5 minutes).
+    
+    Args:
+        email: User's email address
+    
+    Returns:
+        JWT token string
+    """
+    payload: Dict[str, Any] = {
+        "sub": email,
+        "email": email,
+        "type": "password_reset"
+    }
+    expires = _utcnow() + timedelta(minutes=5)
+    payload["exp"] = expires
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+
 

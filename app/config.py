@@ -39,6 +39,18 @@ class SecuritySettings(BaseSettings):
     model_config = _base_config
 
 
+class EmailSettings(BaseSettings):
+    SMTP_HOST: str
+    SMTP_PORT: int
+    SMTP_USERNAME: str
+    SMTP_PASSWORD: str
+    SMTP_FROM_EMAIL: str
+    SMTP_FROM_NAME: str = "My Website"
+    
+    model_config = _base_config
+
+
 # These will now be filled by env vars or Docker Compose .env
 db_settings = DatabaseSettings() # type: ignore
 security_settings = SecuritySettings() # type: ignore
+email_settings = EmailSettings() # type: ignore

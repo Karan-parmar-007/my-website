@@ -1,13 +1,25 @@
-from typing import Any, Dict, Optional, Annotated, TYPE_CHECKING
+from typing import Dict, Any, List, Annotated, Optional, TYPE_CHECKING
+from uuid import UUID
 from fastapi import (
     APIRouter,
-    HTTPException,
-    Request,
-    status,
-    Response,
     Depends,
+    HTTPException,
+    status,
+    UploadFile,
+    File,
+    Form,
+    Response,
+    Request,
     Query,
 )
+from sqlmodel import select
+from motor.motor_asyncio import AsyncIOMotorDatabase
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.routes.v1.user.models import Users
+from app.db.session import get_session
+from app.api.routes.v1.user.service import UserService
+from app.db.mongo_session import get_mongo_db
 
 if TYPE_CHECKING:
     from app.api.dependencies import UserServiceDep
@@ -35,7 +47,14 @@ from app.api.routes.v1.user.schemas import (
     RoleValidatorRequest,
     RoleValidatorResponse,
     RolePermissionsResponse,
-    AdminCreateUser,   # <--- added
+    AdminCreateUser,
+    # Password Reset Schemas
+    AdminPasswordResetRequest,
+    ChangePasswordRequest,
+    ForgetPasswordRequest,
+    ForgotPasswordResponse,
+    VerifyOTPRequest,
+    PasswordResetResponse,
 )
 
 
@@ -43,7 +62,7 @@ from app.api.routes.v1.user.schemas import (
 from app.common.dependencies.jwt_auth import (
     require_auth,
 )
-from app.common.dependencies.role_and_permission_check_auth import require_roles_and_permission
+from app.common.dependencies.role_and_permission_check_auth import require_permission
 from app.utils.security import ACCESS_TOKEN_EXPIRE_SECONDS, decode_access_token
 from bson import ObjectId
 import base64
@@ -168,7 +187,7 @@ async def update_user_admin(
     user_id: UUID,
     data: UserAdminUpdate,
     service: UserServiceDep,
-    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin", "admin"], permission_name="edit_user"))],
+    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_user"))],
 ):
     """Admin update user - can update all fields including role and verification status"""
     updated = await service.update_user_admin(user_id, data)
@@ -238,7 +257,7 @@ async def search_users(
 async def create_permission(
     data: PermissionCreate,
     service: UserServiceDep,  # Top-level: Uses Annotated for type-hinting
-    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin"], permission_name="add_permission"))],  # Factory injects roles/perms!
+    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="add_permission"))],
 ):
     result = await service.create_permission(data)
     if result["status"] == "error":
@@ -474,7 +493,7 @@ async def get_role_permissions(
 async def create_user_by_admin(
     data: AdminCreateUser,
     service: UserServiceDep,
-    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin", "admin"], permission_name="add_user"))],
+    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="add_user"))],
 ):
     """
     Admin endpoint to create a normal user.
@@ -510,7 +529,7 @@ async def delete_current_user(
 async def delete_user_by_admin(
     user_id: UUID,
     service: UserServiceDep,
-    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(allowed_roles=["super_admin", "admin"], permission_name="delete_user"))],
+    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="delete_user"))],
 ):
     """
     Admin endpoint to delete a user by id.
@@ -519,6 +538,146 @@ async def delete_user_by_admin(
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ----------------------------------------
+# 🔹 Password Reset Routes
+# ----------------------------------------
+
+@router.post("/password/admin-reset", response_model=PasswordResetResponse)
+async def admin_reset_user_password(
+    data: AdminPasswordResetRequest,
+    service: UserServiceDep,
+    user: Annotated[Dict[str, Any], Depends(require_permission(
+        permission_name="reset_user_password"
+    ))],
+):
+    """
+    Admin/Super Admin endpoint to reset any user's password.
+    Requires super_admin or admin role with reset_user_password permission.
+    No daily limits apply to admin resets.
+    """
+    result = await service.admin_reset_password(data.email, data.new_password)
+    if result["status"] == "error":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result["message"]
+        )
+    return result
+
+
+@router.post("/password/change", response_model=PasswordResetResponse)
+async def change_user_password(
+    data: ChangePasswordRequest,
+    service: UserServiceDep,
+    user_data: Dict[str, Any] = Depends(require_auth),
+):
+    """
+    Logged-in user changes their own password.
+    Requires current password verification.
+    Subject to daily limit (2 changes per day).
+    """
+    user_id = user_data.get("user_id")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token: user_id missing"
+        )
+    
+    result = await service.change_password(
+        UUID(user_id),
+        data.current_password,
+        data.new_password,
+        data.confirm_password
+    )
+    
+    if result["status"] == "error":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result["message"]
+        )
+    return result
+
+
+@router.post("/password/forgot", response_model=ForgotPasswordResponse)
+async def forgot_password(
+    response: Response,
+    data: ForgetPasswordRequest,
+    service: UserServiceDep,
+):
+    """
+    Initiate forgot password flow OR resend OTP - generates OTP and sends via email.
+    Sets JWT token as HTTP-only cookie for verification step.
+    
+    This is the ONLY endpoint for sending OTP (handles both initial and resend).
+    
+    Rate Limiting:
+    - 30 second delay between requests
+    - More than 3 send attempts result in 30 minute block
+    - 2 successful password resets per 24 hours
+    """
+    result = await service.forgot_password_initiate(data.email)
+    
+    if result["status"] == "error":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result["message"]
+        )
+    
+    # Set token as HTTP-only cookie
+    token = result.pop("token")  # Remove token from response
+    response.set_cookie(
+        key="password_reset_token",
+        value=token,
+        httponly=True,
+        secure=True,  # Set to True in production (requires HTTPS)
+        samesite="lax",
+        max_age=300,  # 5 minutes (same as token expiry)
+    )
+    
+    return result
+
+
+@router.post("/password/verify-otp", response_model=PasswordResetResponse)
+async def verify_otp_and_reset(
+    request: Request,
+    response: Response,
+    data: VerifyOTPRequest,
+    service: UserServiceDep,
+):
+    """
+    Verify OTP and reset password.
+    Reads JWT token from HTTP-only cookie set during forgot password step.
+    
+    Rate Limiting:
+    - 3 wrong OTP attempts result in 30 minute block
+    - Subject to daily limit (2 forgot password resets per day)
+    """
+    # Get token from cookie
+    token = request.cookies.get("password_reset_token")
+    
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Password reset token not found. Please request a new OTP."
+        )
+    
+    result = await service.forgot_password_verify(
+        token,
+        data.otp,
+        data.new_password,
+    )
+    
+    if result["status"] == "error":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result["message"]
+        )
+    
+    # Delete the password reset cookie after successful verification
+    response.delete_cookie(key="password_reset_token")
+    
+    return result
 
 
 

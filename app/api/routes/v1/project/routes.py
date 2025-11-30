@@ -30,7 +30,7 @@ from app.common.schemas.user_project_link import (
 )
 from app.common.services.user_project_link import ProjectMembershipService
 from app.common.dependencies.jwt_auth import require_auth
-from app.common.dependencies.role_and_permission_check_auth import require_roles_and_permission
+from app.common.dependencies.role_and_permission_check_auth import require_permission
 from app.api.dependencies import SessionDep, MongoDBDep
 
 router = APIRouter()
@@ -135,8 +135,7 @@ async def get_project_by_id(
 @router.get("/admin/projects/suggestion", response_model=list[str])
 async def project_suggestions(
     service: ProjectAccessLevelServiceDep,
-    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(
-        allowed_roles=["super_admin", "admin"],
+    user: Annotated[Dict[str, Any], Depends(require_permission(
         permission_name="edit_projects"
     ))],
     q: str = Query(..., min_length=1, description="Search query for project name"),
@@ -152,10 +151,7 @@ async def project_suggestions(
 @router.get("/admin/projects/search", response_model=list[ProjectAdminRead])
 async def search_projects(
     service: ProjectAccessLevelServiceDep,
-    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(
-        allowed_roles=["super_admin", "admin"],
-        permission_name="edit_projects"
-    ))],
+    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_projects"))],
     q: str = Query(..., min_length=1, description="Search query for project name"),
     page: int = Query(1, ge=1, description="Page number (starts at 1)"),
     size: int = Query(20, ge=1, le=100, description="Page size (max 100)"),
@@ -172,10 +168,7 @@ async def search_projects(
 @router.get("/admin/projects", response_model=list[ProjectAdminRead])
 async def get_all_projects_admin(
     service: ProjectAccessLevelServiceDep,
-    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(
-        allowed_roles=["super_admin", "admin"],
-        permission_name="edit_projects"
-    ))],
+    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_projects"))],
     page: int = Query(1, ge=1, description="Page number (starts at 1)"),
     size: int = Query(20, ge=1, le=100, description="Page size (max 100)"),
 ):
@@ -191,10 +184,7 @@ async def get_all_projects_admin(
 async def get_project_by_id_admin(
     project_id: UUID,
     service: ProjectAccessLevelServiceDep,
-    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(
-        allowed_roles=["super_admin", "admin"],
-        permission_name="edit_projects"
-    ))],
+    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_projects"))],
 ):
     """
     Admin endpoint - Fetch a single project by ID with full details.
@@ -211,10 +201,7 @@ async def get_project_by_id_admin(
 @router.post("/admin/projects", response_model=ProjectRead, status_code=status.HTTP_201_CREATED)
 async def create_project(
     service: ProjectAccessLevelServiceDep,
-    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(
-        allowed_roles=["super_admin", "admin"],
-        permission_name="edit_projects"
-    ))],
+    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_projects"))],
     data: tuple[ProjectCreate, Optional[UploadFile]] = Depends(ProjectCreate.as_form),
 ):
     """
@@ -230,10 +217,7 @@ async def create_project(
 async def update_project(
     project_id: UUID,
     service: ProjectAccessLevelServiceDep,
-    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(
-        allowed_roles=["super_admin", "admin"],
-        permission_name="edit_projects"
-    ))],
+    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_projects"))],
     data: tuple[ProjectUpdate, Optional[UploadFile]] = Depends(ProjectUpdate.as_form),
 ):
     """
@@ -254,10 +238,7 @@ async def update_project(
 async def delete_project(
     project_id: UUID,
     service: ProjectAccessLevelServiceDep,
-    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(
-        allowed_roles=["super_admin", "admin"],
-        permission_name="edit_projects"
-    ))],
+    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_projects"))],
 ):
     """
     Admin endpoint - Delete a project by ID.
@@ -311,9 +292,7 @@ async def get_access_level_by_id(
 async def create_access_level(
     data: AccessLevelCreate,
     service: ProjectAccessLevelServiceDep,
-    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(
-        allowed_roles=["super_admin"],
-        permission_name="edit_projects"
+    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_projects"
     ))],
 ):
     """
@@ -328,9 +307,7 @@ async def update_access_level(
     access_level_id: UUID,
     data: AccessLevelUpdate,
     service: ProjectAccessLevelServiceDep,
-    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(
-        allowed_roles=["super_admin"],
-        permission_name="edit_projects"
+    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_projects"
     ))],
 ):
     """
@@ -349,9 +326,7 @@ async def update_access_level(
 async def delete_access_level(
     access_level_id: UUID,
     service: ProjectAccessLevelServiceDep,
-    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(
-        allowed_roles=["super_admin"],
-        permission_name="edit_projects"
+    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_projects"
     ))],
 ):
     """
@@ -373,10 +348,7 @@ async def delete_access_level(
 @router.get("/memberships/search")
 async def search_users_in_project(
     service: ProjectAccessLevelServiceDep,
-    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(
-        allowed_roles=["super_admin", "admin"],
-        permission_name="edit_projects"
-    ))],
+    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_projects"))],
     project_id: UUID = Query(..., description="Project ID to search users in"),
     q: str = Query(..., min_length=1, description="Search query for user name or email"),
     limit: int = Query(20, ge=1, le=100, description="Max results to return"),
@@ -392,10 +364,7 @@ async def search_users_in_project(
 @router.get("/memberships", response_model=list[ProjectMembershipRead])
 async def get_all_memberships(
     service: ProjectMembershipServiceDep,
-    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(
-        allowed_roles=["super_admin", "admin"],
-        permission_name="edit_projects"
-    ))],
+    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_projects"))],
 ):
     """
     Admin endpoint - Fetch all project memberships.
@@ -437,10 +406,7 @@ async def get_memberships_by_project(
 async def create_membership(
     data: ProjectMembershipCreate,
     service: ProjectMembershipServiceDep,
-    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(
-        allowed_roles=["super_admin", "admin"],
-        permission_name="edit_projects"
-    ))],
+    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_projects"))],
 ):
     """
     Admin endpoint - Add a user to a project (create membership).
@@ -452,10 +418,7 @@ async def create_membership(
 @router.delete("/memberships", status_code=status.HTTP_204_NO_CONTENT)
 async def remove_membership(
     service: ProjectMembershipServiceDep,
-    user: Annotated[Dict[str, Any], Depends(require_roles_and_permission(
-        allowed_roles=["super_admin", "admin"],
-        permission_name="edit_projects"
-    ))],
+    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_projects"))],
     user_id: UUID = Query(...),
     project_id: UUID = Query(...),
 ):

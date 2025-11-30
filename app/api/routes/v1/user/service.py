@@ -2,19 +2,27 @@ from motor.motor_asyncio import AsyncIOMotorDatabase, AsyncIOMotorGridFSBucket
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 from uuid import UUID
-from typing import Dict, Any, List, Optional, Any, cast
+from typing import Dict, Any, List, Optional, cast
 from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload, QueryableAttribute
+from datetime import datetime, timedelta
+import logging
 
 from app.api.routes.v1.user.models import UserRole, Permission, Users, RolePermission
 from app.api.routes.v1.user.schemas import  UserAdminUpdate, UserBasicUpdate, UserRoleRead, UserRoleCreate, UserRoleUpdate
 from app.api.routes.v1.user.schemas import PermissionRead, PermissionCreate, PermissionUpdate, RolePermissionRead, RolePermissionCreate
 from app.api.routes.v1.user.schemas import UserRead, UserCreate, UserUpdate, UserLogin, UserDetailRead, AdminCreateUser
-from app.utils.security import hash_password, issue_access_token, verify_password
+from app.utils.security import (
+    hash_password, issue_access_token, verify_password,
+    generate_otp, hash_otp, verify_otp, create_password_reset_token, verify_token
+)
+from app.utils.email import email_service
 
 # New import for repository
 from app.api.routes.v1.user.repository import UserRepository
+
+logger = logging.getLogger(__name__)
 
 class UserService:
     def __init__(self, session: AsyncSession, mongo: AsyncIOMotorDatabase):
@@ -132,9 +140,7 @@ class UserService:
             return None
 
         data = user_update.model_dump(exclude_unset=True)
-        # handle password separately
-        if "password" in data:
-            user.password_hash = hash_password(data.pop("password"))
+        # Password updates removed - use dedicated password reset endpoints
 
         for key, value in data.items():
             setattr(user, key, value)
@@ -173,9 +179,7 @@ class UserService:
 
         data = user_update.model_dump(exclude_unset=True)
         
-        # Handle password separately
-        if "password" in data:
-            user.password_hash = hash_password(data.pop("password"))
+        # Password updates removed - use dedicated password reset endpoints
 
         # Verify role_id exists if provided
         if "role_id" in data:
@@ -562,6 +566,516 @@ class UserService:
             return []
         rows = await self._repo.search_users(query=query.strip(), limit=limit, offset=offset)
         return [UserDetailRead.model_validate(u).model_dump() for u in rows]
+
+    # ----------------------------------------
+    # 🔹 Password Reset Methods
+    # ----------------------------------------
+
+    async def _check_daily_password_limit(self, email: str, change_method: str, max_changes: int = 2) -> bool:
+        """
+        Check if user has exceeded password change limit within 24-hour window.
+        
+        Args:
+            email: User email
+            change_method: Method of password change
+            max_changes: Maximum allowed changes per 24 hours (default: 2)
+        
+        Returns:
+            True if user CAN change password (limit NOT exceeded), False otherwise
+        """
+        # Find existing log for this email and method
+        existing_log = await self.mongo["password_change_logs"].find_one({
+            "email": email,
+            "change_method": change_method
+        })
+        
+        if not existing_log:
+            return True  # No previous changes, can proceed
+        
+        # Check if number_of_times has reached the limit
+        return existing_log.get("number_of_times", 0) < max_changes
+    
+    async def _record_password_change(self, email: str, change_method: str) -> None:
+        """
+        Record a password change in MongoDB with TTL-based tracking.
+        If record exists, increments number_of_times and resets expire_at to 24h from now.
+        If record doesn't exist, creates new record with number_of_times=1.
+        
+        Args:
+            email: User email
+            change_method: Method of password change
+        """
+        try:
+            # Try to find existing log
+            existing_log = await self.mongo["password_change_logs"].find_one({
+                "email": email,
+                "change_method": change_method
+            })
+            
+            now = datetime.utcnow()
+            
+            if existing_log:
+                # Update existing log: increment counter and reset expiry
+                await self.mongo["password_change_logs"].update_one(
+                    {"email": email, "change_method": change_method},
+                    {
+                        "$inc": {"number_of_times": 1},
+                        "$set": {
+                            "expire_at": now + timedelta(hours=24),
+                            "updated_at": now
+                        }
+                    }
+                )
+            else:
+                # Create new log
+                log_doc = {
+                    "email": email,
+                    "change_method": change_method,
+                    "number_of_times": 1,
+                    "expire_at": now + timedelta(hours=24),
+                    "created_at": now,
+                    "updated_at": now
+                }
+                await self.mongo["password_change_logs"].insert_one(log_doc)
+        except Exception as e:
+            logger.error(f"Failed to record password change for {email}: {e}")
+            # Don't raise - this is a non-critical operation
+
+    async def admin_reset_password(self, email: str, new_password: str) -> dict:
+        """
+        Admin/Super Admin resets any user's password.
+        No daily limits apply to admin resets.
+        
+        Args:
+            email: User email address
+            new_password: New password
+        
+        Returns:
+            Success/error dictionary
+        """
+        try:
+            # Find user by email
+            query = select(Users).where(Users.email == email)
+            result = await self.session.execute(query)
+            user = result.scalar_one_or_none()
+            
+            if not user:
+                return {"status": "error", "message": "User not found"}
+            
+            # Update password
+            user.password_hash = hash_password(new_password)
+            self.session.add(user)
+            await self.session.commit()
+            
+            # Record change (non-blocking)
+            await self._record_password_change(email, "admin_reset")
+            
+            # Send confirmation email (non-blocking)
+            try:
+                email_service.send(
+                    to_email=email,
+                    subject="Password Reset by Administrator",
+                    plain_text=f"Your password has been reset by an administrator.\n\nIf you did not request this change, please contact support immediately.",
+                    html_content=f"""
+                    <html>
+                    <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+                        <h2 style="color: #333;">Password Reset by Administrator</h2>
+                        <p>Your password has been reset by an administrator.</p>
+                        <p><strong>If you did not request this change, please contact support immediately.</strong></p>
+                        <hr style="border: none; border-top: 1px solid #ddd; margin: 20px 0;">
+                        <p style="color: #888; font-size: 12px;">This is an automated message, please do not reply.</p>
+                    </body>
+                    </html>
+                    """
+                )
+            except Exception as e:
+                logger.warning(f"Failed to send password reset confirmation email to {email}: {e}")
+            
+            return {
+                "status": "success",
+                "message": "Password reset successfully by administrator"
+            }
+        except Exception as e:
+            await self.session.rollback()
+            return {"status": "error", "message": f"Failed to reset password: {e}"}
+
+    async def change_password(self, user_id: UUID, current_password: str, new_password: str, confirm_password: str) -> dict:
+        """
+        Logged-in user changes their own password.
+        Requires old password verification and enforces daily limits (2 per day).
+        
+        Args:
+            user_id: User UUID
+            current_password: Current password for verification
+            new_password: New password
+            confirm_password: Password confirmation
+        
+        Returns:
+            Success/error dictionary
+        """
+        try:
+            # Validate passwords match
+            if new_password != confirm_password:
+                return {"status": "error", "message": "Passwords do not match"}
+            
+            # Fetch user
+            query = select(Users).where(Users.id == user_id)
+            result = await self.session.execute(query)
+            user = result.scalar_one_or_none()
+            
+            if not user:
+                return {"status": "error", "message": "User not found"}
+            
+            # Verify current password
+            if not verify_password(current_password, user.password_hash):
+                return {"status": "error", "message": "Current password is incorrect"}
+            
+            # Check daily limit (returns True if CAN change)
+            can_change = await self._check_daily_password_limit(user.email, "logged_in_reset")
+            if not can_change:
+                return {
+                    "status": "error",
+                    "message": "Daily password change limit reached (2 per day). Please try again tomorrow."
+                }
+            
+            # Update password
+            user.password_hash = hash_password(new_password)
+            self.session.add(user)
+            await self.session.commit()
+            
+            # Record change
+            await self._record_password_change(user.email, "logged_in_reset")
+            
+            # Send confirmation email
+            try:
+                email_service.send(
+                    to_email=user.email,
+                    subject="Password Changed Successfully",
+                    plain_text=f"Your password has been changed successfully.\n\nIf you did not make this change, please contact support immediately.",
+                    html_content=f"""
+                    <html>
+                    <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+                        <h2 style="color: #333;">Password Changed Successfully</h2>
+                        <p>Your password has been changed successfully.</p>
+                        <p><strong>If you did not make this change, please contact support immediately.</strong></p>
+                        <hr style="border: none; border-top: 1px solid #ddd; margin: 20px 0;">
+                        <p style="color: #888; font-size: 12px;">This is an automated message, please do not reply.</p>
+                    </body>
+                    </html>
+                    """
+                )
+            except Exception as e:
+                logger.warning(f"Failed to send password change confirmation email: {e}")
+            
+            return {
+                "status": "success",
+                "message": "Password changed successfully"
+            }
+        except Exception as e:
+            await self.session.rollback()
+            return {"status": "error", "message": f"Failed to change password: {e}"}
+
+    async def forgot_password_initiate(self, email: str) -> dict:
+        """
+        Initiate forgot password flow - generate OTP and send via email.
+        This is the ONLY function that sends OTP (handles both initial and resend).
+        Enforces rate limiting and blocking rules:
+        - 30 second delay between requests
+        - More than 3 send attempts result in 30 minute block
+        - 2 successful password resets per 24 hours
+        
+        Args:
+            email: User email address
+        
+        Returns:
+            Success/error dictionary with token
+        """
+        try:
+            # Verify user exists
+            query = select(Users).where(Users.email == email)
+            result = await self.session.execute(query)
+            user = result.scalar_one_or_none()
+            
+            if not user:
+                # Don't reveal if email exists or not for security
+                # But still return success-like response to prevent enumeration
+                return {
+                    "status": "success",
+                    "message": "If the email exists, an OTP has been sent",
+                    "email": email,
+                    "token": create_password_reset_token(email)  # Dummy token
+                }
+            
+            # Check password reset limit (2 per 24 hours) - returns True if CAN proceed
+            can_reset = await self._check_daily_password_limit(email, "forgot_password")
+            if not can_reset:
+                return {
+                    "status": "error",
+                    "message": "Password reset limit reached (2 per 24 hours). Please try again later."
+                }
+            
+            collection = self.mongo["otp_verifications"]
+            now = datetime.utcnow()
+            
+            # Check if OTP record exists
+            otp_record = await collection.find_one({"email": email})
+            
+            if otp_record:
+                # Check if blocked
+                if otp_record.get("blocked") and otp_record.get("retry_time"):
+                    if now < otp_record["retry_time"]:
+                        remaining = int((otp_record["retry_time"] - now).total_seconds() / 60)
+                        return {
+                            "status": "error",
+                            "message": f"Too many attempts. Please try again in {remaining} minutes."
+                        }
+                    else:
+                        # Block time has passed, reset the record
+                        await collection.delete_one({"email": email})
+                        otp_record = None
+                
+                if otp_record:
+                    # Check 30-second delay
+                    last_update = otp_record.get("updated_at")
+                    if last_update and (now - last_update).total_seconds() < 30:
+                        wait_time = 30 - int((now - last_update).total_seconds())
+                        return {
+                            "status": "error",
+                            "message": f"Please wait {wait_time} seconds before requesting another OTP"
+                        }
+                    
+                    # Check if already sent more than 3 times
+                    times_sent = otp_record.get("number_of_times_sent", 0)
+                    if times_sent >= 3:
+                        # Block for 30 minutes
+                        await collection.update_one(
+                            {"email": email},
+                            {
+                                "$set": {
+                                    "blocked": True,
+                                    "retry_time": now + timedelta(minutes=30),
+                                    "updated_at": now
+                                }
+                            }
+                        )
+                        return {
+                            "status": "error",
+                            "message": "Too many OTP requests. Please try again in 30 minutes."
+                        }
+            
+            # Generate OTP
+            otp = generate_otp()
+            otp_hashed = hash_otp(otp)
+            expire_at = now + timedelta(minutes=5)
+            
+            # Send OTP email FIRST (before updating DB)
+            email_sent = email_service.send(
+                to_email=email,
+                subject="Your Password Reset OTP",
+                plain_text=f"You requested to reset your password.\n\nYour OTP is: {otp}\n\nThis OTP will expire in 5 minutes.\n\nIf you didn't request this, please ignore this email.",
+                html_content=f"""
+                <html>
+                <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+                    <h2 style="color: #333;">Password Reset Request</h2>
+                    <p>You requested to reset your password. Use the following OTP to complete the process:</p>
+                    <div style="background-color: #f4f4f4; padding: 15px; border-radius: 5px; text-align: center; margin: 20px 0;">
+                        <h1 style="color: #4CAF50; letter-spacing: 5px; margin: 0;">{otp}</h1>
+                    </div>
+                    <p><strong>This OTP will expire in 5 minutes.</strong></p>
+                    <p>If you didn't request this password reset, please ignore this email.</p>
+                    <hr style="border: none; border-top: 1px solid #ddd; margin: 20px 0;">
+                    <p style="color: #888; font-size: 12px;">This is an automated message, please do not reply.</p>
+                </body>
+                </html>
+                """
+            )
+            
+            if not email_sent:
+                return {"status": "error", "message": "Failed to send OTP email. Please try again."}
+            
+            # Email sent successfully, now update/create OTP record
+            if otp_record:
+                # Increment times_sent
+                new_times_sent = otp_record.get("number_of_times_sent", 0) + 1
+                update_data = {
+                    "otp_hash": otp_hashed,
+                    "expire_at": expire_at,
+                    "number_of_times_sent": new_times_sent,
+                    "number_of_wrong_attempts": 0,
+                    "blocked": False,
+                    "retry_time": None,
+                    "updated_at": now
+                }
+                
+                # Block if this is more than 3rd send
+                if new_times_sent > 3:
+                    update_data["blocked"] = True
+                    update_data["retry_time"] = now + timedelta(minutes=30)
+                
+                await collection.update_one(
+                    {"email": email},
+                    {"$set": update_data}
+                )
+            else:
+                # Create new record
+                await collection.insert_one({
+                    "email": email,
+                    "otp_hash": otp_hashed,
+                    "expire_at": expire_at,
+                    "number_of_times_sent": 1,
+                    "number_of_wrong_attempts": 0,
+                    "retry_time": None,
+                    "blocked": False,
+                    "created_at": now,
+                    "updated_at": now
+                })
+            
+            # Create short-lived token (5 minutes)
+            token = create_password_reset_token(email)
+            
+            return {
+                "status": "success",
+                "message": "OTP sent to your email address",
+                "email": email,
+                "token": token
+            }
+        except Exception as e:
+            logger.error(f"Failed to initiate forgot password for {email}: {e}")
+            return {"status": "error", "message": "An error occurred. Please try again."}
+
+    async def forgot_password_verify(self, token: str, otp: str, new_password: str) -> dict:
+        """
+        Verify OTP and reset password.
+        
+        Args:
+            token: JWT token from HTTP-only cookie
+            otp: 6-digit OTP from email
+            new_password: New password
+        
+        Returns:
+            Success/error dictionary
+        """
+        email = None
+        try:
+            # Verify token
+            try:
+                payload = verify_token(token, expected_type="password_reset")
+                email = payload.get("email")
+                if not email:
+                    return {"status": "error", "message": "Invalid token"}
+            except HTTPException as e:
+                return {"status": "error", "message": str(e.detail)}
+            
+            # Fetch OTP record
+            collection = self.mongo["otp_verifications"]
+            otp_record = await collection.find_one({"email": email})
+            
+            if not otp_record:
+                return {"status": "error", "message": "OTP not found or expired. Please request a new one."}
+            
+            now = datetime.utcnow()
+            
+            # Check if blocked
+            if otp_record.get("blocked"):
+                retry_time = otp_record.get("retry_time")
+                if retry_time and now < retry_time:
+                    remaining = int((retry_time - now).total_seconds() / 60)
+                    return {"status": "error", "message": f"Account temporarily blocked. Please try again in {remaining} minutes."}
+                else:
+                    # Block expired, but still need valid OTP
+                    pass
+            
+            # Check expiration
+            if now > otp_record.get("expire_at"):
+                await collection.delete_one({"email": email})
+                return {"status": "error", "message": "OTP has expired. Please request a new one."}
+            
+            # Verify OTP
+            if not verify_otp(otp, otp_record.get("otp_hash")):
+                # Increment wrong attempts
+                wrong_attempts = otp_record.get("number_of_wrong_attempts", 0) + 1
+                update_data = {
+                    "number_of_wrong_attempts": wrong_attempts,
+                    "updated_at": now
+                }
+                
+                # Block after 3 wrong attempts
+                if wrong_attempts >= 3:
+                    update_data["blocked"] = True
+                    update_data["retry_time"] = now + timedelta(minutes=30)
+                
+                await collection.update_one(
+                    {"email": email},
+                    {"$set": update_data}
+                )
+                
+                if wrong_attempts >= 3:
+                    return {"status": "error", "message": "Too many incorrect attempts. Please try again in 30 minutes."}
+                
+                return {"status": "error", "message": f"Invalid OTP. {3 - wrong_attempts} attempts remaining."}
+            
+            # OTP is valid - Update password
+            query = select(Users).where(Users.email == email)
+            result = await self.session.execute(query)
+            user = result.scalar_one_or_none()
+            
+            if not user:
+                return {"status": "error", "message": "User not found"}
+            
+            user.password_hash = hash_password(new_password)
+            self.session.add(user)
+            await self.session.commit()
+            
+            # Record password change for daily limit tracking
+            await self._record_password_change(email, "forgot_password")
+            
+            # Delete OTP verification record
+            await collection.delete_one({"email": email})
+            
+            # Send confirmation email
+            try:
+                email_service.send(
+                    to_email=email,
+                    subject="Password Reset Successful",
+                    plain_text=f"Your password has been successfully reset.\n\nIf you did not make this change, please contact support immediately.",
+                    html_content=f"""
+                    <html>
+                    <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+                        <h2 style="color: #333;">Password Reset Successful</h2>
+                        <div style="background-color: #d4edda; border: 2px solid #28a745; border-radius: 5px; padding: 20px; margin: 20px 0;">
+                            <p style="margin: 0;"><strong>✓ Your password has been successfully reset.</strong></p>
+                        </div>
+                        <p>If you did not make this change, please contact support immediately.</p>
+                        <hr style="border: none; border-top: 1px solid #ddd; margin: 20px 0;">
+                        <p style="color: #888; font-size: 12px;">This is an automated message, please do not reply.</p>
+                    </body>
+                    </html>
+                    """
+                )
+            except Exception as e:
+                logger.warning(f"Failed to send password reset confirmation email to {email}: {e}")
+            
+            return {
+                "status": "success",
+                "message": "Password reset successfully. You can now login with your new password."
+            }
+        except Exception as e:
+            logger.error(f"Failed to verify OTP for {email}: {e}")
+            await self.session.rollback()
+            return {"status": "error", "message": "Failed to reset password. Please try again."}
+
+    async def resend_otp(self, email: str) -> dict:
+        """
+        Resend OTP for forgot password flow.
+        This method just calls forgot_password_initiate since the logic is the same.
+        
+        Args:
+            email: User email address
+        
+        Returns:
+            Success/error dictionary
+        """
+        return await self.forgot_password_initiate(email)
 
 
 
