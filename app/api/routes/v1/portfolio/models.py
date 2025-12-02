@@ -95,8 +95,9 @@ class Education(SQLModel, table=True):
         sa_column=Column(postgresql.INTEGER, nullable=False)
     )
 
-    end_year: int = Field(
-        sa_column=Column(postgresql.INTEGER, nullable=False)
+    end_year: Optional[int] = Field(
+        default=None,
+        sa_column=Column(postgresql.INTEGER, nullable=True)
     )
 
     Score: Optional[float] = Field(
@@ -136,8 +137,9 @@ class WorkExperience(SQLModel, table=True):
         sa_column=Column(postgresql.DATE, nullable=False)
     )
 
-    end_date: datetime = Field(
-        sa_column=Column(postgresql.DATE, nullable=False)
+    end_date: Optional[datetime] = Field(
+        default=None,
+        sa_column=Column(postgresql.DATE, nullable=True)
     )
 
 
