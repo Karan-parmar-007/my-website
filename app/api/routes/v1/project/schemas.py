@@ -1,13 +1,16 @@
 import json
+import math
 from pydantic import BaseModel, field_validator
 from typing import Optional, Union
 from uuid import UUID
 from datetime import datetime
 from fastapi import UploadFile, Form, File
 
+from app.api.routes.v1.portfolio.schemas import SkillRead
+
 
 # ----------------------------------------
-# 🔹 Accsslevel
+# 🔹 Access Level
 # ----------------------------------------
 
 class AccessLevelRead(BaseModel):
@@ -37,9 +40,11 @@ class ProjectRead(BaseModel):
     name: str
     short_description: Optional[str] = None
     long_description: Optional[str] = None
-    skills_used: Optional[list[str]] = []
+    skills: list[SkillRead] = []
+    access_level_id: UUID
     github_link_backend: Optional[str] = None
     github_link_frontend: Optional[str] = None
+    ngrok_url: Optional[str] = None
     docker_image_link_backend: Optional[str] = None
     docker_image_link_frontend: Optional[str] = None
     contributors: Optional[dict] = {}
@@ -47,22 +52,18 @@ class ProjectRead(BaseModel):
     is_live: bool
     access_level: Optional["AccessLevelRead"] = None
     project_image_base_six_four: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True
-
-class ProjectAdminRead(ProjectRead):
-    access_level_id: UUID
-    created_at: datetime
-    updated_at: datetime
-    ngrok_url: Optional[str] = None
 
 class ProjectCreate(BaseModel):
     name: str
     short_description: str
     long_description: str
     access_level_id: UUID
-    skills_used: Optional[list[str]] = []
+    skill_ids: list[UUID] = []
     github_link_backend: Optional[str] = None
     github_link_frontend: Optional[str] = None
     ngrok_url: Optional[str] = None
@@ -79,7 +80,7 @@ class ProjectCreate(BaseModel):
         short_description: str = Form(...),
         long_description: str = Form(...),
         access_level_id: UUID = Form(...),
-        skills_used: Optional[list[str]] = Form(default=[]),
+        skill_ids: Optional[str] = Form(default="[]"),
         github_link_backend: Optional[str] = Form(default=None),
         github_link_frontend: Optional[str] = Form(default=None),
         ngrok_url: Optional[str] = Form(default=None),
@@ -94,7 +95,13 @@ class ProjectCreate(BaseModel):
             parsed_contributors = json.loads(contributors) if contributors else {}
         except json.JSONDecodeError:
             parsed_contributors = {}
-        
+
+        try:
+            parsed_skill_ids = json.loads(skill_ids) if skill_ids else []
+            parsed_skill_ids = [UUID(sid) for sid in parsed_skill_ids]
+        except (json.JSONDecodeError, ValueError):
+            parsed_skill_ids = []
+
         if isinstance(project_image, str):
             project_image = None
 
@@ -107,7 +114,7 @@ class ProjectCreate(BaseModel):
             short_description=short_description,
             long_description=long_description,
             access_level_id=access_level_id,
-            skills_used=skills_used,
+            skill_ids=parsed_skill_ids,
             github_link_backend=github_link_backend,
             github_link_frontend=github_link_frontend,
             ngrok_url=ngrok_url,
@@ -123,7 +130,7 @@ class ProjectUpdate(BaseModel):
     short_description: Optional[str] = None
     long_description: Optional[str] = None
     access_level_id: Optional[UUID] = None
-    skills_used: Optional[list[str]] = None
+    skill_ids: Optional[list[UUID]] = None
     github_link_backend: Optional[str] = None
     github_link_frontend: Optional[str] = None
     ngrok_url: Optional[str] = None
@@ -140,7 +147,7 @@ class ProjectUpdate(BaseModel):
         short_description: Optional[str] = Form(default=None),
         long_description: Optional[str] = Form(default=None),
         access_level_id: Optional[UUID] = Form(default=None),
-        skills_used: Optional[list[str]] = Form(default=None),
+        skill_ids: Optional[str] = Form(default=None),
         github_link_backend: Optional[str] = Form(default=None),
         github_link_frontend: Optional[str] = Form(default=None),
         ngrok_url: Optional[str] = Form(default=None),
@@ -155,6 +162,13 @@ class ProjectUpdate(BaseModel):
             parsed_contributors = json.loads(contributors) if contributors else None
         except json.JSONDecodeError:
             parsed_contributors = None
+
+        parsed_skill_ids = None
+        if skill_ids is not None:
+            try:
+                parsed_skill_ids = [UUID(sid) for sid in json.loads(skill_ids)]
+            except (json.JSONDecodeError, ValueError):
+                parsed_skill_ids = None
         
         # Handle empty string from Swagger UI
         if isinstance(project_image, str):
@@ -169,7 +183,7 @@ class ProjectUpdate(BaseModel):
             short_description=short_description,
             long_description=long_description,
             access_level_id=access_level_id,
-            skills_used=skills_used,
+            skill_ids=parsed_skill_ids,
             github_link_backend=github_link_backend,
             github_link_frontend=github_link_frontend,
             ngrok_url=ngrok_url,
@@ -181,12 +195,23 @@ class ProjectUpdate(BaseModel):
         ), project_image
 
 
+# ----------------------------------------
+# 🔹 Paginated Response
+# ----------------------------------------
 
+class PaginatedProjectResponse(BaseModel):
+    items: list[ProjectRead] = []
+    total: int = 0
+    page: int = 1
+    size: int = 20
+    pages: int = 0
 
-
-
-
-
-
-
-
+    @classmethod
+    def create(cls, items: list, total: int, page: int, size: int):
+        return cls(
+            items=items,
+            total=total,
+            page=page,
+            size=size,
+            pages=math.ceil(total / size) if size > 0 else 0,
+        )

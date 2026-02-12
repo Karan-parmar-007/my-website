@@ -1,11 +1,14 @@
 from datetime import datetime
 from uuid import UUID, uuid4
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from pydantic import EmailStr
 from sqlalchemy import ForeignKey
 from sqlmodel import Field, Relationship, SQLModel, Column, JSON
 from sqlalchemy.dialects import postgresql
+
+if TYPE_CHECKING:
+    from app.common.models.project_skill_link import ProjectSkill
 
 
 # ----------------------------------------
@@ -46,22 +49,7 @@ class ProfileInfo(SQLModel, table=True):
         sa_column=Column(postgresql.VARCHAR(100), nullable=True)
     )
 
-    github_url: Optional[str] = Field(
-        default=None,
-        sa_column=Column(postgresql.VARCHAR(255), nullable=True)
-    )
-
-    linkedin_url: Optional[str] = Field(
-        default=None,
-        sa_column=Column(postgresql.VARCHAR(255), nullable=True)
-    )
-
     resume_file_id: Optional[str] = Field(
-        default=None,
-        sa_column=Column(postgresql.VARCHAR(255), nullable=True)
-    )
-
-    instagram: Optional[str] = Field(
         default=None,
         sa_column=Column(postgresql.VARCHAR(255), nullable=True)
     )
@@ -182,12 +170,49 @@ class Skill(SQLModel, table=True):
         sa_column=Column(postgresql.VARCHAR(255), nullable=True)
     )
 
-    # relationship
+    # relationships
     category_obj: "SkillCategory" = Relationship(back_populates="skills")
+    project_skills: list["ProjectSkill"] = Relationship(back_populates="skill")
 
 
+# ----------------------------------------
+# 🔹 Social Media
+# ----------------------------------------
 
+class SocialMedia(SQLModel, table=True):
+    """
+    Stores social media links separately from profile.
+    Allows users to add/remove social links dynamically.
+    """
+    __tablename__ = "socialmedia"
+    
+    id: UUID = Field(
+        sa_column=Column(postgresql.UUID(as_uuid=True), primary_key=True, default=uuid4)
+    )
+    name: str = Field(
+        sa_column=Column(postgresql.VARCHAR(50), nullable=False),
+        description="Platform name: LinkedIn, GitHub, Instagram, Twitter, etc."
+    )
+    link: str = Field(
+        sa_column=Column(postgresql.VARCHAR(500), nullable=False),
+        description="Full URL to the social media profile"
+    )
+    created_at: datetime = Field(
+        sa_column=Column(postgresql.TIMESTAMP(timezone=True), nullable=False, default=datetime.now),
+        alias="createdAt"
+    )
+    updated_at: datetime = Field(
+        sa_column=Column(
+            postgresql.TIMESTAMP(timezone=True), 
+            nullable=False, 
+            default=datetime.now, 
+            onupdate=datetime.now
+        ),
+        alias="updatedAt"
+    )
 
+    class Config:
+        populate_by_name = True
 
 
 

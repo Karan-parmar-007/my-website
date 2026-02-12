@@ -1,4 +1,8 @@
-# app/common/dependencies/role_and_permission_check_auth.py (updated)
+# app/common/dependencies/role_and_permission_check_auth.py
+"""
+Permission checking dependencies with system admin bypass.
+System admins (configured in SYSTEM_ADMIN_BYPASS_ROLES) bypass all permission checks.
+"""
 from typing import Annotated, Dict, Any, Callable, Optional, cast
 from uuid import UUID
 from fastapi import Depends, HTTPException, status
@@ -7,6 +11,8 @@ from app.common.dependencies.jwt_auth import require_auth
 from app.api.dependencies import get_user_service
 from app.api.routes.v1.user.models import Users, UserRole, Permission, RolePermission
 from app.api.routes.v1.user.service import UserService
+from app.config import security_settings
+
 
 def require_permission(permission_name: str) -> Callable:
     """
@@ -17,7 +23,8 @@ def require_permission(permission_name: str) -> Callable:
     1. Validates the JWT token
     2. Fetches the user from database
     3. Fetches the user's role
-    4. Checks if the role has the required permission
+    4. **BYPASSES** permission check if role is in SYSTEM_ADMIN_BYPASS_ROLES
+    5. Otherwise, checks if the role has the required permission
     
     Returns user payload on success; raises 401/403 on failure.
     """
@@ -60,6 +67,12 @@ def require_permission(permission_name: str) -> Callable:
                 status_code=status.HTTP_403_FORBIDDEN, 
                 detail="User has no role assigned"
             )
+
+        # 🔹 SYSTEM ADMIN BYPASS: Skip permission checks for configured roles
+        bypass_roles = [r.lower() for r in security_settings.SYSTEM_ADMIN_BYPASS_ROLES]
+        if role.name.lower() in bypass_roles:
+            # System admin bypasses all permission checks
+            return user_data
 
         # Fetch the required permission
         q_perm = select(Permission).where(Permission.name == permission_name)

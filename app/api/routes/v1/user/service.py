@@ -6,6 +6,7 @@ from typing import Dict, Any, List, Optional, cast
 from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload, QueryableAttribute
+from sqlalchemy import func, or_
 from datetime import datetime, timedelta
 import logging
 
@@ -19,16 +20,12 @@ from app.utils.security import (
 )
 from app.utils.email import email_service
 
-# New import for repository
-from app.api.routes.v1.user.repository import UserRepository
-
 logger = logging.getLogger(__name__)
 
 class UserService:
     def __init__(self, session: AsyncSession, mongo: AsyncIOMotorDatabase):
         self.session = session
         self.mongo = mongo
-        self._repo = UserRepository(session)
 
 
     # ----------------------------------------
@@ -68,7 +65,11 @@ class UserService:
         await self.session.flush()
         return role
 
-    async def create_user(self, user_create: UserCreate) -> dict:
+    async def create_user(self, user_create: UserCreate) -> Users:
+        """
+        Create a new user.
+        Returns the created Users object or raises HTTPException.
+        """
         try:
             # Check if user already exists by email
             query = select(Users).where(
@@ -77,7 +78,10 @@ class UserService:
             result = await self.session.execute(query)
             existing = result.scalar_one_or_none()
             if existing:
-                return {"status": "error", "message": "User with this email already exists"}
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="User with this email already exists"
+                )
 
             role = await self._get_or_create_default_role()
 
@@ -91,24 +95,23 @@ class UserService:
             await self.session.commit()
             await self.session.refresh(user)
 
-            token_bundle = issue_access_token(
-                subject=str(user.id),
-                additional_claims={"user_id": str(user.id), "email": str(user.email)}
-            )
-
-            return {
-                "status": "success",
-                "message": "User registered successfully",
-                **token_bundle,
-                "user": UserRead.model_validate(user).model_dump(),
-            }
+            return user
 
         except IntegrityError:
             await self.session.rollback()
-            return {"status": "error", "message": "Constraint violation creating user"}
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Constraint violation creating user"
+            )
+        except HTTPException:
+            raise
         except Exception as e:
             await self.session.rollback()
-            return {"status": "error", "message": f"Failed to create user: {e}"}
+            logger.error(f"Failed to create user: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create user"
+            )
 
     async def authenticate_user(self, user_login: UserLogin) -> dict:
         try:
@@ -418,8 +421,15 @@ class UserService:
         """
         Return list of users paginated with full details (without password_hash).
         """
-        rows = await self._repo.fetch_users(limit=limit, offset=offset)
-        # convert to schema dicts
+        query = (
+            select(Users)
+            .options(selectinload(Users.role))
+            .order_by(Users.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        result = await self.session.execute(query)
+        rows = result.scalars().all()
         return [UserDetailRead.model_validate(u).model_dump() for u in rows]
 
     async def user_has_role(self, user_id: str, required_role: str) -> bool:
@@ -549,22 +559,71 @@ class UserService:
 
     async def fetch_user_suggestions(self, query: str, limit: int = 5) -> List[str]:
         """
-        Return suggestions for preferred_name/email matching query.
-        Delegates to repository which uses ilike and .limit().
+        Return suggestions for preferred_name/email matching query using trigram similarity.
+        Returns a list of matching preferred_names and emails.
         """
         if not query or not query.strip():
             return []
-        suggestions = await self._repo.fetch_user_suggestions(query=query.strip(), limit=limit)
-        return suggestions
+
+        search_term = query.strip()
+        # Fetch matching names
+        name_stmt = (
+            select(Users.preferred_name)
+            .where(func.similarity(Users.preferred_name, search_term) > 0.1)
+            .order_by(func.similarity(Users.preferred_name, search_term).desc())
+            .limit(limit)
+        )
+        name_result = await self.session.execute(name_stmt)
+        names = [row[0] for row in name_result.all()]
+
+        # Fetch matching emails
+        email_stmt = (
+            select(Users.email)
+            .where(func.similarity(Users.email, search_term) > 0.1)
+            .order_by(func.similarity(Users.email, search_term).desc())
+            .limit(limit)
+        )
+        email_result = await self.session.execute(email_stmt)
+        emails = [row[0] for row in email_result.all()]
+
+        # Merge and deduplicate, keeping order
+        seen = set()
+        suggestions = []
+        for item in names + emails:
+            if item not in seen:
+                seen.add(item)
+                suggestions.append(item)
+        return suggestions[:limit]
 
     async def search_users(self, query: str, limit: int = 20, offset: int = 0) -> List[dict]:
         """
-        Search users by preferred_name or email and return full user details with pagination.
-        Delegates to repository which uses ilike, .limit() and .offset().
+        Search users by preferred_name or email using trigram similarity.
+        Returns full user details with pagination, ranked by relevance.
         """
         if not query or not query.strip():
             return []
-        rows = await self._repo.search_users(query=query.strip(), limit=limit, offset=offset)
+
+        search_term = query.strip()
+        stmt = (
+            select(Users)
+            .options(selectinload(Users.role))
+            .where(
+                or_(
+                    func.similarity(Users.preferred_name, search_term) > 0.1,
+                    func.similarity(Users.email, search_term) > 0.1,
+                )
+            )
+            .order_by(
+                func.greatest(
+                    func.similarity(Users.preferred_name, search_term),
+                    func.similarity(Users.email, search_term),
+                ).desc()
+            )
+            .limit(limit)
+            .offset(offset)
+        )
+        result = await self.session.execute(stmt)
+        rows = result.scalars().all()
         return [UserDetailRead.model_validate(u).model_dump() for u in rows]
 
     # ----------------------------------------

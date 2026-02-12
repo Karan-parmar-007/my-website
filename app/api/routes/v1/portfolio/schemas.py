@@ -17,12 +17,8 @@ class ProfileInfoRead(BaseModel):
     email: EmailStr
     phone: Optional[str]
     location: Optional[str]
-    github_url: Optional[str]
-    linkedin_url: Optional[str]
-    resume_file_id: Optional[str]
-    instagram: Optional[str]
-    profile_image_base64: Optional[str] = None
-    resume_file_base64: Optional[str] = None  # <-- Add this
+    has_profile_image: bool = False
+    has_resume: bool = False
 
     class Config:
         from_attributes = True
@@ -34,9 +30,6 @@ class ProfileInfoCreate(BaseModel):
     email: EmailStr
     phone: Optional[str] = None
     location: Optional[str] = None
-    github_url: Optional[str] = None
-    linkedin_url: Optional[str] = None
-    instagram: Optional[str] = None
 
 class ProfileInfoUpdate(BaseModel):
     name: Optional[str] = None
@@ -45,9 +38,6 @@ class ProfileInfoUpdate(BaseModel):
     email: Optional[EmailStr] = None
     phone: Optional[str] = None
     location: Optional[str] = None
-    github_url: Optional[str] = None
-    linkedin_url: Optional[str] = None
-    instagram: Optional[str] = None
 
 class ProfileInfoCreateForm(BaseModel):
     name: str
@@ -56,9 +46,6 @@ class ProfileInfoCreateForm(BaseModel):
     headline: Optional[str] = None
     phone: Optional[str] = None
     location: Optional[str] = None
-    github_url: Optional[str] = None
-    linkedin_url: Optional[str] = None
-    instagram: Optional[str] = None
 
     @classmethod
     def as_form(
@@ -69,9 +56,6 @@ class ProfileInfoCreateForm(BaseModel):
         headline: Optional[str] = Form(None),
         phone: Optional[str] = Form(None),
         location: Optional[str] = Form(None),
-        github_url: Optional[str] = Form(None),
-        linkedin_url: Optional[str] = Form(None),
-        instagram: Optional[str] = Form(None),
         profile_image: Optional[UploadFile] = File(None),
         resume_file: Optional[UploadFile] = File(None)
     ) -> tuple["ProfileInfoCreateForm", Optional[UploadFile], Optional[UploadFile]]:
@@ -81,10 +65,7 @@ class ProfileInfoCreateForm(BaseModel):
             about=about,
             headline=headline,
             phone=phone,
-            location=location,
-            github_url=github_url,
-            linkedin_url=linkedin_url,
-            instagram=instagram
+            location=location
         ), profile_image, resume_file
 
 class ProfileInfoUpdateForm(BaseModel):
@@ -94,36 +75,27 @@ class ProfileInfoUpdateForm(BaseModel):
     headline: Optional[str] = None
     phone: Optional[str] = None
     location: Optional[str] = None
-    github_url: Optional[str] = None
-    linkedin_url: Optional[str] = None
-    instagram: Optional[str] = None
 
-    @classmethod
-    def as_form(
-        cls,
-        name: Optional[str] = Form(None),
-        email: Optional[EmailStr] = Form(None),
-        about: Optional[str] = Form(None),
-        headline: Optional[str] = Form(None),
-        phone: Optional[str] = Form(None),
-        location: Optional[str] = Form(None),
-        github_url: Optional[str] = Form(None),
-        linkedin_url: Optional[str] = Form(None),
-        instagram: Optional[str] = Form(None),
-        profile_image: Optional[UploadFile] = File(None),
-        resume_file: Optional[UploadFile] = File(None)
-    ) -> tuple["ProfileInfoUpdateForm", Optional[UploadFile], Optional[UploadFile]]:
-        return cls(
-            name=name,
-            email=email,
-            about=about,
-            headline=headline,
-            phone=phone,
-            location=location,
-            github_url=github_url,
-            linkedin_url=linkedin_url,
-            instagram=instagram
-        ), profile_image, resume_file
+
+# ----------------------------------------
+# 🔹 Social Media
+# ----------------------------------------
+
+class SocialMediaRead(BaseModel):
+    id: UUID
+    name: str
+    link: str
+
+    class Config:
+        from_attributes = True
+
+class SocialMediaCreate(BaseModel):
+    name: str
+    link: str
+
+class SocialMediaUpdate(BaseModel):
+    name: Optional[str] = None
+    link: Optional[str] = None
 
 
 
@@ -212,7 +184,7 @@ class SkillCategoryUpdate(BaseModel):
 class SkillRead(BaseModel):
     id: UUID
     name: str
-    category_id: UUID
+    category_id: Optional[UUID] = None
     category_name: Optional[str] = None
     image_base64: Optional[str] = None
 
@@ -250,8 +222,8 @@ class SkillUpdateForm(SkillUpdate):
         category_id: Optional[UUID] = Form(None),
         skill_image: Optional[UploadFile] = File(None)
     ) -> tuple["SkillUpdateForm", Optional[UploadFile]]:
-        return cls(
-            id=id,
-            name=name,
-            category_id=category_id
-        ), skill_image
+        data = {'id': id}
+        if name is not None: data['name'] = name
+        if category_id is not None: data['category_id'] = category_id
+        
+        return cls(**data), skill_image

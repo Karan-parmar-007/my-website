@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, List
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,12 +7,13 @@ from uuid import UUID
 from bson import ObjectId
 import base64
 
-from app.api.routes.v1.portfolio.models import ProfileInfo, Education, WorkExperience, Skill, SkillCategory
+from app.api.routes.v1.portfolio.models import ProfileInfo, Education, WorkExperience, Skill, SkillCategory, SocialMedia
 from app.api.routes.v1.portfolio.schemas import ProfileInfoCreate, ProfileInfoUpdate
 from app.api.routes.v1.portfolio.schemas import EducationCreate, EducationRead, EducationUpdate
 from app.api.routes.v1.portfolio.schemas import WorkExperienceCreate, WorkExperienceRead, WorkExperienceUpdate
 from app.api.routes.v1.portfolio.schemas import SkillCreate, SkillRead, SkillUpdate, SkillCreateForm, SkillUpdateForm
 from app.api.routes.v1.portfolio.schemas import SkillCategoryCreate, SkillCategoryRead, SkillCategoryUpdate
+from app.api.routes.v1.portfolio.schemas import SocialMediaCreate, SocialMediaRead, SocialMediaUpdate
 from app.utils.gridfs_utils import upload_to_gridfs, delete_from_gridfs, get_gridfs_bucket
 
 
@@ -132,6 +133,72 @@ class PortfolioService:
         except Exception as e:
             await self.session.rollback()
             raise ValueError(f"Error deleting profile: {str(e)}")
+
+    async def update_profile_image(self, profile_image: UploadFile) -> None:
+        """Update only the profile image."""
+        profile = await self.get_profile_info()
+        if not profile:
+            raise ValueError("Profile does not exist")
+
+        if profile.profile_image_id:
+            await delete_from_gridfs(self.profile_bucket, profile.profile_image_id)
+        profile.profile_image_id = await upload_to_gridfs(self.profile_bucket, profile_image)
+
+        self.session.add(profile)
+        try:
+            await self.session.commit()
+        except Exception as e:
+            await self.session.rollback()
+            raise ValueError(f"Error updating profile image: {str(e)}")
+
+    async def delete_profile_image(self) -> None:
+        """Delete only the profile image."""
+        profile = await self.get_profile_info()
+        if not profile or not profile.profile_image_id:
+            raise ValueError("No profile image to delete")
+
+        await delete_from_gridfs(self.profile_bucket, profile.profile_image_id)
+        profile.profile_image_id = None
+
+        self.session.add(profile)
+        try:
+            await self.session.commit()
+        except Exception as e:
+            await self.session.rollback()
+            raise ValueError(f"Error deleting profile image: {str(e)}")
+
+    async def update_profile_resume(self, resume_file: UploadFile) -> None:
+        """Update only the resume file."""
+        profile = await self.get_profile_info()
+        if not profile:
+            raise ValueError("Profile does not exist")
+
+        if profile.resume_file_id:
+            await delete_from_gridfs(self.resume_bucket, profile.resume_file_id)
+        profile.resume_file_id = await upload_to_gridfs(self.resume_bucket, resume_file)
+
+        self.session.add(profile)
+        try:
+            await self.session.commit()
+        except Exception as e:
+            await self.session.rollback()
+            raise ValueError(f"Error updating resume: {str(e)}")
+
+    async def delete_profile_resume(self) -> None:
+        """Delete only the resume file."""
+        profile = await self.get_profile_info()
+        if not profile or not profile.resume_file_id:
+            raise ValueError("No resume to delete")
+
+        await delete_from_gridfs(self.resume_bucket, profile.resume_file_id)
+        profile.resume_file_id = None
+
+        self.session.add(profile)
+        try:
+            await self.session.commit()
+        except Exception as e:
+            await self.session.rollback()
+            raise ValueError(f"Error deleting resume: {str(e)}")
 
 
 # ----------------------------------------
@@ -390,4 +457,66 @@ class PortfolioService:
             return skill
         except Exception as e:
             raise ValueError(f"Error fetching skill: {str(e)}")
+
+    # ----------------------------------------
+    # 🔹 Social Media service
+    # ----------------------------------------
+
+    async def get_social_media_list(self) -> List[SocialMedia]:
+        """Get all social media links."""
+        result = await self.session.execute(select(SocialMedia))
+        return list(result.scalars().all())
+
+    async def get_social_media_by_id(self, social_media_id: UUID) -> Optional[SocialMedia]:
+        """Get a social media link by ID."""
+        return await self.session.get(SocialMedia, social_media_id)
+
+    async def create_social_media(self, data: SocialMediaCreate) -> SocialMedia:
+        """Create a new social media link."""
+        social_media = SocialMedia(
+            name=data.name,
+            link=data.link
+        )
+        self.session.add(social_media)
+        try:
+            await self.session.commit()
+            await self.session.refresh(social_media)
+        except Exception as e:
+            await self.session.rollback()
+            raise ValueError(f"Error creating social media: {str(e)}")
+        return social_media
+
+    async def update_social_media(self, social_media_id: UUID, data: SocialMediaUpdate) -> SocialMedia:
+        """Update an existing social media link."""
+        social_media = await self.session.get(SocialMedia, social_media_id)
+        if not social_media:
+            raise ValueError("Social media link not found")
+
+        update_data = data.model_dump(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(social_media, field, value)
+
+        self.session.add(social_media)
+        try:
+            await self.session.commit()
+            await self.session.refresh(social_media)
+        except Exception as e:
+            await self.session.rollback()
+            raise ValueError(f"Error updating social media: {str(e)}")
+        return social_media
+
+    async def delete_social_media(self, social_media_id: UUID) -> bool:
+        """Delete a social media link."""
+        social_media = await self.session.get(SocialMedia, social_media_id)
+        if not social_media:
+            raise ValueError("Social media link not found")
+
+        await self.session.delete(social_media)
+        try:
+            await self.session.commit()
+        except Exception as e:
+            await self.session.rollback()
+            raise ValueError(f"Error deleting social media: {str(e)}")
+        return True
+
 

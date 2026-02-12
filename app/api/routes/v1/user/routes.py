@@ -15,6 +15,7 @@ from fastapi import (
 from sqlmodel import select
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.config import security_settings
 
 from app.api.routes.v1.user.models import Users
 from app.db.session import get_session
@@ -72,71 +73,10 @@ from sqlmodel import select
 router = APIRouter()
 
 # ----------------------------------------
-# 🔹 user
+# 🔹 User Management
+# Note: Auth routes (login, logout, register) are now in /api/v1/auth
 # ----------------------------------------
 
-@router.post("/register", response_model=UserCreateResponse, status_code=status.HTTP_201_CREATED)
-async def create_user(
-    response: Response,
-    service: UserServiceDep,
-    data: UserCreate,  # read JSON body
-):
-    result = await service.create_user(data)
-    
-    if result["status"] == "error":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=result["message"]
-        )
-    
-    # Set token as HttpOnly cookie
-    response.set_cookie(
-        key="access_token",
-        value=result["access_token"],
-        httponly=True,
-        secure=True,  # Set to True in production (requires HTTPS)
-        samesite="lax",
-        max_age=ACCESS_TOKEN_EXPIRE_SECONDS,
-    )
-    
-    # Don't send token in response body
-    result["access_token"] = None
-    return result
-
-@router.post("/login", response_model=UserLoginResponse)
-async def login_user(
-    response: Response,
-    service: UserServiceDep,
-    data: UserLogin,  # read JSON body
-):
-    result = await service.authenticate_user(data)
-    
-    if result["status"] == "error":
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=result["message"]
-        )
-    
-    # Set token as HttpOnly cookie
-    response.set_cookie(
-        key="access_token",
-        value=result["access_token"],
-        httponly=True,
-        secure=True,  # Set to True in production
-        samesite="lax",
-        max_age=ACCESS_TOKEN_EXPIRE_SECONDS,
-    )
-    
-    result["access_token"] = None
-    return result
-
-@router.post("/logout")
-async def logout(
-    response: Response,
-    user: Dict[str, Any] = Depends(require_auth),
-):
-    response.delete_cookie(key="access_token")
-    return {"message": "Logged out successfully"}
 
 @router.get("/me", response_model=UserRead)
 async def get_current_user(
@@ -624,13 +564,15 @@ async def forgot_password(
             detail=result["message"]
         )
     
+
+
     # Set token as HTTP-only cookie
     token = result.pop("token")  # Remove token from response
     response.set_cookie(
         key="password_reset_token",
         value=token,
         httponly=True,
-        secure=True,  # Set to True in production (requires HTTPS)
+        secure=(security_settings.ENVIRONMENT == "production"),  # Set to True in production (requires HTTPS)
         samesite="lax",
         max_age=300,  # 5 minutes (same as token expiry)
     )

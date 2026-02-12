@@ -9,9 +9,11 @@ from alembic import context
 from sqlmodel import SQLModel
 from app.config import db_settings
 from app.api.routes.v1.user.models import Users, UserRole, Permission, RolePermission
-from app.api.routes.v1.portfolio.models import ProfileInfo, Education, WorkExperience, Skill
+from app.api.routes.v1.portfolio.models import ProfileInfo, Education, WorkExperience, Skill, SkillCategory, SocialMedia
 from app.common.models.user_project_link import ProjectMembership
+from app.common.models.project_skill_link import ProjectSkill
 from app.api.routes.v1.project.models import Projects, AccessLevel
+from app.api.routes.v1.auth.models import SignUpLog, LoginLog, RefreshToken
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

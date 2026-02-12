@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, Annotated
+from typing import Any, Dict, Optional, Annotated, List
 from fastapi import (
     APIRouter,
     File,
@@ -17,10 +17,10 @@ from app.api.routes.v1.project.schemas import (
     ProjectRead,
     ProjectCreate,
     ProjectUpdate,
-    ProjectAdminRead,
     AccessLevelRead,
     AccessLevelCreate,
     AccessLevelUpdate,
+    PaginatedProjectResponse,
 )
 from app.common.schemas.user_project_link import (
     ProjectMembershipRead,
@@ -62,38 +62,40 @@ async def get_featured_projects(
     return projects
 
 
-# Move these BEFORE /projects/{project_id}
 @router.get("/projects/suggestion", response_model=list[str])
-async def project_suggestions_public(
+async def get_project_suggestions(
     service: ProjectAccessLevelServiceDep,
-    q: str = Query(..., min_length=1, description="Search query for project name"),
-    limit: int = Query(5, ge=1, le=10, description="Max suggestions to return (1-10)"),
+    q: str = Query(..., min_length=1, description="Search query for project name suggestions"),
+    limit: int = Query(5, ge=1, le=20, description="Max suggestions to return"),
 ):
     """
-    Public endpoint - Return project name suggestions matching query.
+    Public endpoint - Get project name suggestions based on trigram similarity.
     """
     suggestions = await service.fetch_project_suggestions(query=q, limit=limit)
     return suggestions
 
 
-@router.get("/projects/search", response_model=list[ProjectRead])
+@router.get("/projects/search", response_model=PaginatedProjectResponse)
 async def search_projects_public(
     service: ProjectAccessLevelServiceDep,
-    q: str = Query(..., min_length=1, description="Search query for project name"),
+    q: Optional[str] = Query(None, min_length=1, description="FTS search query"),
+    skill_ids: Optional[List[UUID]] = Query(None, alias="skillIds", description="Filter by skill IDs (all must match)"),
+    sort_by_date: Optional[str] = Query(None, alias="sortByDate", regex="^(asc|desc)$", description="Sort by created_at: asc or desc"),
     page: int = Query(1, ge=1, description="Page number (starts at 1)"),
     size: int = Query(20, ge=1, le=100, description="Page size (max 100)"),
 ):
     """
-    Public endpoint - Search projects by name with pagination.
+    Public endpoint - FTS search projects with filters and pagination.
+    Searches across name, short description, long description, and skill names.
     """
-    offset = (page - 1) * size
-    projects = await service.search_projects(query=q, limit=size, offset=offset)
-    
-    # Filter to return only ProjectRead fields (not admin fields)
-    return [
-        ProjectRead.model_validate(project).model_dump() 
-        for project in projects
-    ]
+    result = await service.search_projects_fts(
+        query_str=q,
+        skill_ids=skill_ids,
+        sort_by_date=sort_by_date,
+        page=page,
+        size=size,
+    )
+    return result
 
 
 @router.get("/projects", response_model=list[ProjectRead])
@@ -120,76 +122,6 @@ async def get_project_by_id(
     Public endpoint - Fetch a single project by ID.
     """
     project = await service.get_project_by_id(project_id)
-    if not project:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Project not found"
-        )
-    return project
-
-
-# ----------------------------------------
-# 🔹 Projects - Admin Routes
-# ----------------------------------------
-
-@router.get("/admin/projects/suggestion", response_model=list[str])
-async def project_suggestions(
-    service: ProjectAccessLevelServiceDep,
-    user: Annotated[Dict[str, Any], Depends(require_permission(
-        permission_name="edit_projects"
-    ))],
-    q: str = Query(..., min_length=1, description="Search query for project name"),
-    limit: int = Query(5, ge=1, le=10, description="Max suggestions to return (1-10)"),
-):
-    """
-    Admin endpoint - Return project name suggestions matching query.
-    """
-    suggestions = await service.fetch_project_suggestions(query=q, limit=limit)
-    return suggestions
-
-
-@router.get("/admin/projects/search", response_model=list[ProjectAdminRead])
-async def search_projects(
-    service: ProjectAccessLevelServiceDep,
-    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_projects"))],
-    q: str = Query(..., min_length=1, description="Search query for project name"),
-    page: int = Query(1, ge=1, description="Page number (starts at 1)"),
-    size: int = Query(20, ge=1, le=100, description="Page size (max 100)"),
-):
-    """
-    Admin endpoint - Search projects by name with pagination.
-    Returns full project details.
-    """
-    offset = (page - 1) * size
-    projects = await service.search_projects(query=q, limit=size, offset=offset)
-    return projects
-
-
-@router.get("/admin/projects", response_model=list[ProjectAdminRead])
-async def get_all_projects_admin(
-    service: ProjectAccessLevelServiceDep,
-    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_projects"))],
-    page: int = Query(1, ge=1, description="Page number (starts at 1)"),
-    size: int = Query(20, ge=1, le=100, description="Page size (max 100)"),
-):
-    """
-    Admin endpoint - Fetch all projects with full details (including non-live) with pagination.
-    """
-    offset = (page - 1) * size
-    projects = await service.get_project_admin(limit=size, offset=offset)
-    return projects
-
-
-@router.get("/admin/projects/{project_id}", response_model=ProjectAdminRead)
-async def get_project_by_id_admin(
-    project_id: UUID,
-    service: ProjectAccessLevelServiceDep,
-    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_projects"))],
-):
-    """
-    Admin endpoint - Fetch a single project by ID with full details.
-    """
-    project = await service.get_project_admin_by_id(project_id)
     if not project:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

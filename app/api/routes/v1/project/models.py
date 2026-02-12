@@ -1,13 +1,17 @@
 from datetime import datetime
 from uuid import UUID, uuid4
-from typing import Optional, List
+from typing import Optional, List, TYPE_CHECKING
 
 from pydantic import EmailStr
 from sqlalchemy import ForeignKey
 from sqlmodel import Field, SQLModel, Column, Relationship
 from sqlalchemy.dialects import postgresql
+from sqlalchemy.dialects.postgresql import TSVECTOR
 
 from app.common.models.user_project_link import ProjectMembership
+
+if TYPE_CHECKING:
+    from app.common.models.project_skill_link import ProjectSkill
 
 
 class AccessLevel(SQLModel, table=True):
@@ -54,10 +58,7 @@ class Projects(SQLModel, table=True):
     )
     access_level: Optional[AccessLevel] = Relationship()
 
-    skills_used: list[str] = Field(
-        default=[],
-        sa_column=Column(postgresql.ARRAY(postgresql.VARCHAR), nullable=True)
-    )
+    project_skills: list["ProjectSkill"] = Relationship(back_populates="project")
 
     github_link_backend: str | None = Field(
         default=None,
@@ -110,4 +111,12 @@ class Projects(SQLModel, table=True):
         sa_column=Column(postgresql.VARCHAR(255), nullable=True)
     )
 
+    search_vector: Optional[str] = Field(
+        default=None,
+        sa_column=Column(TSVECTOR, nullable=True),
+        exclude=True,
+    )
 
+
+# Ensure ProjectSkill is imported so SQLAlchemy can resolve the relationship
+from app.common.models.project_skill_link import ProjectSkill  # noqa: E402, F401

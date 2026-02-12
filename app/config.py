@@ -33,8 +33,39 @@ class DatabaseSettings(BaseSettings):
 class SecuritySettings(BaseSettings):
     JWT_SECRET: str
     JWT_ALGORITHM: str
-    JWT_EXPIRATION_Days: int = 7
-    JWT_EXPIRATION_MINUTES: int = 30
+    
+    # Token expiry (configurable)
+    ACCESS_TOKEN_EXPIRY_MINUTES: int = 15
+    REFRESH_TOKEN_EXPIRY_DAYS: int = 30
+    
+    ENVIRONMENT: str = "development"
+    
+    # CSRF exempt paths (GET requests are always exempt)
+    CSRF_EXEMPT_PATHS: list[str] = [
+        "/api/v1/auth/login",
+        "/api/v1/auth/signup",
+        "/api/v1/auth/refresh",
+        "/api/v1/auth/forgot-password",
+        "/api/v1/auth/reset-password",
+        # Swagger/OpenAPI documentation
+        "/docs",
+        "/redoc",
+        "/openapi.json",
+    ]
+    
+    # System admin bypass - these roles skip all permission checks
+    SYSTEM_ADMIN_BYPASS_ROLES: list[str] = ["system_admin", "admin"]
+    
+    # Cron job - hour of day to run cleanup (0-23, 0 = midnight)
+    REFRESH_TOKEN_CLEANUP_HOUR: int = 0
+    
+    # OTP Rate Limiting
+    OTP_RESEND_DELAY_SECONDS: int = 30
+    OTP_MAX_RESENDS: int = 2  # Total 3 sends (1 initial + 2 resends)
+    
+    # Password Change Limits
+    MAX_PASSWORD_RESETS_PER_DAY: int = 2
+    MAX_PASSWORD_CHANGES_PER_DAY: int = 2
 
     model_config = _base_config
 

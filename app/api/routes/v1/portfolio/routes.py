@@ -4,6 +4,7 @@ from fastapi import (
     HTTPException,
     status,
     UploadFile,
+    File,
     Response,
     Depends
 )
@@ -13,8 +14,6 @@ from app.api.routes.v1.portfolio.schemas import (
     ProfileInfoRead,
     ProfileInfoCreate,
     ProfileInfoUpdate,
-    ProfileInfoCreateForm,
-    ProfileInfoUpdateForm,
     EducationCreate,
     EducationRead,
     EducationUpdate,
@@ -28,13 +27,16 @@ from app.api.routes.v1.portfolio.schemas import (
     SkillUpdateForm,
     SkillCategoryCreate,
     SkillCategoryRead,
-    SkillCategoryUpdate
+    SkillCategoryUpdate,
+    SocialMediaRead,
+    SocialMediaCreate,
+    SocialMediaUpdate,
 )
 from app.common.dependencies.role_and_permission_check_auth import require_permission
 
 from bson import ObjectId
-import base64
 from uuid import UUID
+
 
 
 router = APIRouter()
@@ -45,44 +47,21 @@ router = APIRouter()
 # ----------------------------------------
 
 @router.get("/profile-info", response_model=ProfileInfoRead)
-async def get_full_profile(service: PortfolioServiceDep):
+async def get_profile_info(service: PortfolioServiceDep):
+    """Get profile text data only (no files)."""
     profile = await service.get_profile_info()
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
 
-    image_data = None
-    if profile.profile_image_id:
-        try:
-            # Use the pre-initialized profile_bucket
-            stream = await service.profile_bucket.open_download_stream(ObjectId(profile.profile_image_id))
-            profile_image_content: bytes = await stream.read()
-            image_data = base64.b64encode(profile_image_content).decode("utf-8")
-        except Exception as e:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Error retrieving profile image: {str(e)}"
-            )
-
-    resume_data = None
-    if profile.resume_file_id:
-        try:
-            # Use the pre-initialized resume_bucket
-            stream = await service.resume_bucket.open_download_stream(ObjectId(profile.resume_file_id))
-            resume_content: bytes = await stream.read()
-            resume_data = base64.b64encode(resume_content).decode("utf-8")
-        except Exception as e:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Error retrieving resume file: {str(e)}"
-            )
-
-    result = profile.model_dump() if hasattr(profile, "dict") else profile.__dict__
-    result["profile_image_base64"] = image_data
-    result["resume_file_base64"] = resume_data
+    result = profile.model_dump() if hasattr(profile, "model_dump") else profile.__dict__
+    result["has_profile_image"] = bool(profile.profile_image_id)
+    result["has_resume"] = bool(profile.resume_file_id)
     return result
 
-@router.get("/profile-image")
+
+@router.get("/profile-info/image")
 async def get_profile_image(service: PortfolioServiceDep):
+    """Stream profile image."""
     profile = await service.get_profile_info()
     if not profile or not profile.profile_image_id:
         raise HTTPException(status_code=404, detail="No image found")
@@ -92,54 +71,128 @@ async def get_profile_image(service: PortfolioServiceDep):
     return Response(content, media_type=stream.metadata.get("content_type", "image/jpeg"))
 
 
+@router.get("/profile-info/resume")
+async def get_profile_resume(service: PortfolioServiceDep):
+    """Stream resume file."""
+    profile = await service.get_profile_info()
+    if not profile or not profile.resume_file_id:
+        raise HTTPException(status_code=404, detail="No resume found")
+
+    stream = await service.resume_bucket.open_download_stream(ObjectId(profile.resume_file_id))
+    content: bytes = await stream.read()
+    content_type = stream.metadata.get("content_type", "application/pdf")
+    filename = stream.metadata.get("filename", "resume.pdf")
+    return Response(
+        content,
+        media_type=content_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
 
 
 @router.post("/profile-info", status_code=status.HTTP_201_CREATED)
 async def create_portfolio(
     service: PortfolioServiceDep,
-    form_data: Annotated[tuple[ProfileInfoCreateForm, Optional[UploadFile], Optional[UploadFile]], Depends(ProfileInfoCreateForm.as_form)],
+    data: ProfileInfoCreate,
     user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_portfolio"))]
 ):
-    data, profile_image, resume_file = form_data
+    """Create profile with text data only."""
     profile_exist = await service.get_profile_info()
     if profile_exist:
         raise HTTPException(status_code=400, detail="Profile already exists")
-    create_data = ProfileInfoCreate(**data.model_dump() if hasattr(data, "model_dump") else data.__dict__)
-    profile = await service.create_profile_info(create_data, profile_image, resume_file)
+    profile = await service.create_profile_info(data, None, None)
     return {"message": "Profile created successfully", "profile_id": str(profile.id)}
 
 
 @router.put("/profile-info", response_model=ProfileInfoRead)
 async def update_portfolio(
     service: PortfolioServiceDep,
-    form_data: Annotated[tuple[ProfileInfoUpdateForm, Optional[UploadFile], Optional[UploadFile]], Depends(ProfileInfoUpdateForm.as_form)],
+    data: ProfileInfoUpdate,
     user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_portfolio"))]
 ):
-    data, profile_image, resume_file = form_data
+    """Update profile text data only."""
     profile = await service.get_profile_info()
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
 
-    # Convert form data to ProfileInfoUpdate model
-    update_data = ProfileInfoUpdate(**data.model_dump() if hasattr(data, "model_dump") else data.__dict__)
-    updated_profile = await service.update_profile_info(update_data, profile_image, resume_file)
-
-    image_data = None
-    if updated_profile.profile_image_id:
-        stream = await service.profile_bucket.open_download_stream(ObjectId(updated_profile.profile_image_id))
-        profile_image_content: bytes = await stream.read()
-        image_data = base64.b64encode(profile_image_content).decode("utf-8")
-
-    resume_data = None
-    if updated_profile.resume_file_id:
-        stream = await service.resume_bucket.open_download_stream(ObjectId(updated_profile.resume_file_id))
-        resume_content: bytes = await stream.read()
-        resume_data = base64.b64encode(resume_content).decode("utf-8")
-
-    result = updated_profile.model_dump() if hasattr(updated_profile, "dict") else updated_profile.__dict__
-    result["profile_image_base64"] = image_data
-    result["resume_file_base64"] = resume_data
+    updated_profile = await service.update_profile_info(data, None, None)
+    result = updated_profile.model_dump() if hasattr(updated_profile, "model_dump") else updated_profile.__dict__
+    result["has_profile_image"] = bool(updated_profile.profile_image_id)
+    result["has_resume"] = bool(updated_profile.resume_file_id)
     return result
+
+
+@router.put("/profile-info/image", status_code=status.HTTP_200_OK)
+async def update_profile_image(
+    service: PortfolioServiceDep,
+    profile_image: UploadFile = File(...),
+    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_portfolio"))] = None
+):
+    """Upload/replace profile image. Accepts: jpg, jpeg, png."""
+    ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/jpg"}
+    if profile_image.content_type not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid file type. Allowed: JPG, PNG. Got: {profile_image.content_type}"
+        )
+    
+    profile = await service.get_profile_info()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    await service.update_profile_image(profile_image)
+    return {"message": "Profile image updated successfully"}
+
+
+@router.delete("/profile-info/image", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_profile_image(
+    service: PortfolioServiceDep,
+    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_portfolio"))]
+):
+    """Delete profile image."""
+    profile = await service.get_profile_info()
+    if not profile or not profile.profile_image_id:
+        raise HTTPException(status_code=404, detail="No image to delete")
+
+    await service.delete_profile_image()
+
+
+@router.put("/profile-info/resume", status_code=status.HTTP_200_OK)
+async def update_profile_resume(
+    service: PortfolioServiceDep,
+    resume_file: UploadFile = File(...),
+    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_portfolio"))] = None
+):
+    """Upload/replace resume file. Accepts: pdf, docx."""
+    ALLOWED_RESUME_TYPES = {
+        "application/pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",  # docx
+        "application/msword"  # doc
+    }
+    if resume_file.content_type not in ALLOWED_RESUME_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid file type. Allowed: PDF, DOCX. Got: {resume_file.content_type}"
+        )
+    
+    profile = await service.get_profile_info()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    await service.update_profile_resume(resume_file)
+    return {"message": "Resume updated successfully"}
+
+
+@router.delete("/profile-info/resume", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_profile_resume(
+    service: PortfolioServiceDep,
+    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_portfolio"))]
+):
+    """Delete resume file."""
+    profile = await service.get_profile_info()
+    if not profile or not profile.resume_file_id:
+        raise HTTPException(status_code=404, detail="No resume to delete")
+
+    await service.delete_profile_resume()
 
 
 @router.delete("/profile-info", status_code=status.HTTP_204_NO_CONTENT)
@@ -147,11 +200,13 @@ async def delete_portfolio(
     service: PortfolioServiceDep,
     user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_portfolio"))]
 ):
+    """Delete entire profile including files."""
     profile = await service.get_profile_info()
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
 
     await service.delete_profile_info()
+
 
 
 # ----------------------------------------
@@ -328,7 +383,7 @@ async def update_skill(
     user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_skills"))]
 ):
     data, skill_image = form_data
-    update_data = SkillUpdate(**data.model_dump() if hasattr(data, "model_dump") else data.__dict__)
+    update_data = SkillUpdate(**data.model_dump(exclude_unset=True) if hasattr(data, "model_dump") else data.__dict__)
     try:
         updated_skill = await service.update_skill(update_data, skill_image)
         return await service.get_skill_with_details(updated_skill)
@@ -359,4 +414,66 @@ async def get_skill_image(
     stream = await service.skill_bucket.open_download_stream(ObjectId(skill.image_id))
     content: bytes = await stream.read()
     return Response(content, media_type=stream.metadata.get("content_type", "image/jpeg"))
+
+
+# ----------------------------------------
+# 🔹 Social Media
+# ----------------------------------------
+
+@router.get("/social-media", response_model=list[SocialMediaRead])
+async def get_social_media(service: PortfolioServiceDep):
+    """
+    Get all social media links.
+    Public endpoint - no authentication required.
+    """
+    return await service.get_social_media_list()
+
+
+@router.post("/social-media", response_model=SocialMediaRead, status_code=status.HTTP_201_CREATED)
+async def create_social_media(
+    service: PortfolioServiceDep,
+    data: SocialMediaCreate,
+    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_portfolio"))]
+):
+    """
+    Create a new social media link.
+    Requires edit_portfolio permission.
+    """
+    try:
+        return await service.create_social_media(data)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.put("/social-media/{social_media_id}", response_model=SocialMediaRead)
+async def update_social_media(
+    service: PortfolioServiceDep,
+    social_media_id: UUID,
+    data: SocialMediaUpdate,
+    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_portfolio"))]
+):
+    """
+    Update an existing social media link.
+    Requires edit_portfolio permission.
+    """
+    try:
+        return await service.update_social_media(social_media_id, data)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.delete("/social-media/{social_media_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_social_media(
+    service: PortfolioServiceDep,
+    social_media_id: UUID,
+    user: Annotated[Dict[str, Any], Depends(require_permission(permission_name="edit_portfolio"))]
+):
+    """
+    Delete a social media link.
+    Requires edit_portfolio permission.
+    """
+    try:
+        await service.delete_social_media(social_media_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
