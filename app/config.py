@@ -38,7 +38,7 @@ class SecuritySettings(BaseSettings):
     ACCESS_TOKEN_EXPIRY_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRY_DAYS: int = 30
     
-    ENVIRONMENT: str = "development"
+    ENVIRONMENT: str = "production"
     
     # CSRF exempt paths (GET requests are always exempt)
     CSRF_EXEMPT_PATHS: list[str] = [
