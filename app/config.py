@@ -8,7 +8,6 @@ _base_config = SettingsConfigDict(
 )
 
 
-
 class DatabaseSettings(BaseSettings):
     POSTGRES_SERVER: str
     POSTGRES_PORT: int
