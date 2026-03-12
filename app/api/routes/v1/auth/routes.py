@@ -84,6 +84,9 @@ COOKIE_DOMAIN = ".karanparmar.in" if security_settings.ENVIRONMENT == "productio
 def _set_csrf_cookie(response: Response) -> None:
     """Set CSRF token cookie for client to use in subsequent requests."""
     token = secrets.token_hex(CSRF_TOKEN_BYTES)
+    # Delete old cookie (without domain) to prevent duplicates after migration
+    if COOKIE_DOMAIN:
+        response.delete_cookie(key=CSRF_COOKIE_NAME, httponly=False, samesite="lax")
     response.set_cookie(
         key=CSRF_COOKIE_NAME,
         value=token,
@@ -97,6 +100,10 @@ def _set_csrf_cookie(response: Response) -> None:
 
 def _set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
     """Set httpOnly cookies for access and refresh tokens, plus CSRF token."""
+    # Delete old cookies (without domain) to prevent duplicates after migration
+    if COOKIE_DOMAIN:
+        response.delete_cookie(key="access_token", httponly=True, samesite="lax")
+        response.delete_cookie(key="refresh_token", path="/api/v1/auth", httponly=True, samesite="lax")
     response.set_cookie(
         key="access_token",
         value=access_token,
