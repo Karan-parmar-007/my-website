@@ -78,6 +78,9 @@ UserServiceDep = Annotated[UserService, Depends(get_user_service)]
 
 from app.config import security_settings
 
+# Cookie domain for cross-subdomain support (karanparmar.in + www.karanparmar.in)
+COOKIE_DOMAIN = ".karanparmar.in" if security_settings.ENVIRONMENT == "production" else None
+
 def _set_csrf_cookie(response: Response) -> None:
     """Set CSRF token cookie for client to use in subsequent requests."""
     token = secrets.token_hex(CSRF_TOKEN_BYTES)
@@ -87,6 +90,7 @@ def _set_csrf_cookie(response: Response) -> None:
         httponly=False,  # Must be readable by JavaScript
         secure=(security_settings.ENVIRONMENT == "production"),
         samesite="lax",
+        domain=COOKIE_DOMAIN,
         max_age=60 * 60 * 24 * 7  # 7 days
     )
 
@@ -99,6 +103,7 @@ def _set_auth_cookies(response: Response, access_token: str, refresh_token: str)
         httponly=True,
         secure=(security_settings.ENVIRONMENT == "production"),
         samesite="lax",
+        domain=COOKIE_DOMAIN,
         max_age=ACCESS_TOKEN_EXPIRE_SECONDS
     )
     response.set_cookie(
@@ -107,6 +112,7 @@ def _set_auth_cookies(response: Response, access_token: str, refresh_token: str)
         httponly=True,
         secure=(security_settings.ENVIRONMENT == "production"),
         samesite="lax",
+        domain=COOKIE_DOMAIN,
         max_age=REFRESH_TOKEN_EXPIRE_SECONDS,
         path="/api/v1/auth"  # Only sent to auth endpoints
     )
@@ -120,20 +126,23 @@ def _clear_auth_cookies(response: Response) -> None:
         key="access_token",
         secure=(security_settings.ENVIRONMENT == "production"),
         httponly=True,
-        samesite="lax"
+        samesite="lax",
+        domain=COOKIE_DOMAIN
     )
     response.delete_cookie(
         key="refresh_token",
         path="/api/v1/auth",
         secure=(security_settings.ENVIRONMENT == "production"),
         httponly=True,
-        samesite="lax"
+        samesite="lax",
+        domain=COOKIE_DOMAIN
     )
     response.delete_cookie(
         key=CSRF_COOKIE_NAME,
         secure=(security_settings.ENVIRONMENT == "production"),
         httponly=False,
-        samesite="lax"
+        samesite="lax",
+        domain=COOKIE_DOMAIN
     )
 
 

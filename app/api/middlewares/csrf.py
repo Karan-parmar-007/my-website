@@ -53,13 +53,14 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         
         if has_access_token and not has_csrf_token:
             # Force logout - clear all auth cookies and return 401
+            cookie_domain = ".karanparmar.in" if security_settings.ENVIRONMENT == "production" else None
             response = JSONResponse(
                 status_code=401,
                 content={"detail": "Session invalid. Please login again."}
             )
-            response.delete_cookie("access_token")
-            response.delete_cookie("refresh_token", path="/api/v1/auth")
-            response.delete_cookie(CSRF_COOKIE_NAME)
+            response.delete_cookie("access_token", domain=cookie_domain)
+            response.delete_cookie("refresh_token", path="/api/v1/auth", domain=cookie_domain)
+            response.delete_cookie(CSRF_COOKIE_NAME, domain=cookie_domain)
             return response
         
         # Skip safe methods - they don't change state

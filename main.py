@@ -82,9 +82,8 @@ app.add_middleware(
         "http://localhost:3000",
         "http://localhost:4173",
         "http://localhost:5173",
-        "http://168.220.236.230",
         "https://karanparmar.in",
-        "https://www.karanparmar.in"
+        "https://www.karanparmar.in",
     ],
     allow_credentials=True,
     allow_methods=["*"],
