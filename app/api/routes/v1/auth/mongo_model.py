@@ -1,7 +1,7 @@
 
 from datetime import datetime, timedelta, timezone
 from typing import Optional
-from motor.motor_asyncio import AsyncIOMotorDatabase
+from pymongo.asynchronous.database import AsyncDatabase
 import logging
 
 from app.config import security_settings
@@ -13,7 +13,7 @@ class AuthRepository:
     Repository for all Auth related MongoDB operations.
     Handles OTPs and Password Change Logs.
     """
-    def __init__(self, mongo: AsyncIOMotorDatabase):
+    def __init__(self, mongo: AsyncDatabase):
         self.mongo = mongo
         self.otp_collection = self.mongo["password_resets"]
         self.log_collection = self.mongo["password_change_logs"]

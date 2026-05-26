@@ -3,7 +3,7 @@
 from typing import Annotated
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from motor.motor_asyncio import AsyncIOMotorDatabase
+from pymongo.asynchronous.database import AsyncDatabase
 
 from app.db.session import get_session
 from app.db.mongo_session import get_mongo_db
@@ -15,7 +15,7 @@ from app.common.services.user_project_link import ProjectMembershipService
 
 # DB Dependencies
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
-MongoDBDep = Annotated[AsyncIOMotorDatabase, Depends(get_mongo_db)]
+MongoDBDep = Annotated[AsyncDatabase, Depends(get_mongo_db)]
 
 # Service Dependency - make it async
 async def get_portfolio_service(
@@ -34,7 +34,7 @@ async def get_user_service(
 
 async def get_project_service(
     session: AsyncSession = Depends(get_session),
-    mongo: AsyncIOMotorDatabase = Depends(get_mongo_db),
+    mongo: AsyncDatabase = Depends(get_mongo_db),
 ) -> ProjectAccessLevelService:
     return ProjectAccessLevelService(session, mongo)
 

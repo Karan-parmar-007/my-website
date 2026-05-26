@@ -13,7 +13,6 @@ from fastapi import (
     Query,
 )
 from sqlmodel import select
-from motor.motor_asyncio import AsyncIOMotorDatabase
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import security_settings
 

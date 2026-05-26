@@ -1,4 +1,4 @@
-from motor.motor_asyncio import AsyncIOMotorDatabase, AsyncIOMotorGridFSBucket
+from pymongo.asynchronous.database import AsyncDatabase
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 from uuid import UUID
@@ -23,7 +23,7 @@ from app.utils.email import email_service
 logger = logging.getLogger(__name__)
 
 class UserService:
-    def __init__(self, session: AsyncSession, mongo: AsyncIOMotorDatabase):
+    def __init__(self, session: AsyncSession, mongo: AsyncDatabase):
         self.session = session
         self.mongo = mongo
 

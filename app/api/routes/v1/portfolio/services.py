@@ -1,5 +1,5 @@
 from typing import Optional, List
-from motor.motor_asyncio import AsyncIOMotorDatabase
+from pymongo.asynchronous.database import AsyncDatabase
 from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
@@ -18,7 +18,7 @@ from app.utils.gridfs_utils import upload_to_gridfs, delete_from_gridfs, get_gri
 
 
 class PortfolioService:
-    def __init__(self, session: AsyncSession, mongo: AsyncIOMotorDatabase):
+    def __init__(self, session: AsyncSession, mongo: AsyncDatabase):
         self.session = session
         self.mongo = mongo
         self.profile_bucket = get_gridfs_bucket(mongo, "profile_files")

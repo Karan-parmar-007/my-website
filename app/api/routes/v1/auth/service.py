@@ -18,7 +18,7 @@ import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select, delete
-from motor.motor_asyncio import AsyncIOMotorDatabase
+from pymongo.asynchronous.database import AsyncDatabase
 
 from app.api.routes.v1.auth.models import SignUpLog, LoginLog, RefreshToken
 from app.api.routes.v1.user.models import Users, UserRole
@@ -47,7 +47,7 @@ class AuthService:
     Uses async database sessions for non-blocking I/O.
     """
     
-    def __init__(self, session: AsyncSession, mongo: AsyncIOMotorDatabase):
+    def __init__(self, session: AsyncSession, mongo: AsyncDatabase):
         self.session = session
         self.mongo = mongo
         self._repo = AuthRepository(mongo)

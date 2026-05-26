@@ -3,7 +3,7 @@ MongoDB index creation and TTL setup for password reset collections.
 Run this script once during deployment or database initialization.
 """
 
-from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo import AsyncMongoClient
 import asyncio
 from app.config import db_settings, email_settings
 import logging
@@ -16,7 +16,7 @@ async def create_indexes():
     """
     Create MongoDB indexes for password reset collections.
     """
-    client = AsyncIOMotorClient(db_settings.MONGO_URI)
+    client = AsyncMongoClient(db_settings.MONGO_URI)
     db = client[db_settings.MONGO_DB_NAME]
     
     logger.info("Creating MongoDB indexes for password reset...")

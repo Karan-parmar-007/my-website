@@ -1,4 +1,4 @@
-from motor.motor_asyncio import AsyncIOMotorDatabase, AsyncIOMotorGridFSBucket
+from pymongo.asynchronous.database import AsyncDatabase
 from fastapi import UploadFile, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, text, delete, or_
@@ -25,7 +25,7 @@ from app.common.models.user_project_link import ProjectMembership
 
 class ProjectAccessLevelService:
 
-    def __init__(self, session: AsyncSession, mongo: AsyncIOMotorDatabase):
+    def __init__(self, session: AsyncSession, mongo: AsyncDatabase):
         self.session = session
         self.mongo = mongo
         self.project_bucket = get_gridfs_bucket(mongo, "project_files")

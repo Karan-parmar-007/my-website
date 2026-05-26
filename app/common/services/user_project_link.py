@@ -1,4 +1,4 @@
-from motor.motor_asyncio import AsyncIOMotorDatabase
+from pymongo.asynchronous.database import AsyncDatabase
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 from sqlalchemy import or_
@@ -15,7 +15,7 @@ from app.api.routes.v1.user.models import Users
 # ----------------------------------------
 
 class ProjectMembershipService:
-    def __init__(self, session: AsyncSession, mongo: AsyncIOMotorDatabase):
+    def __init__(self, session: AsyncSession, mongo: AsyncDatabase):
         self.session = session
         self.mongo = mongo
 
